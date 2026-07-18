@@ -168,6 +168,9 @@ func (s *Supervisor) stop(ctx context.Context) {
 	if s.opts.StopServerAnnounceDelay > 0 {
 		s.writeLine(fmt.Sprintf("say Server shutting down in %ds", int(s.opts.StopServerAnnounceDelay.Seconds())))
 
+		// ctx.Done() only cuts the wait short; it does not skip sending the
+		// stop command below — an early-cancelled ctx must not leave the
+		// server running with the announcement as its only warning.
 		timer := time.NewTimer(s.opts.StopServerAnnounceDelay)
 		defer timer.Stop()
 		select {
