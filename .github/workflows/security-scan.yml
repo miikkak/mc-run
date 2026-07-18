@@ -1,0 +1,16 @@
+---
+name: Scheduled Security Scan
+
+on: # yamllint disable-line rule:truthy
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  security:
+    uses: miikkak/workflows/.github/workflows/security-scan.yml@main
+    secrets: inherit
