@@ -74,9 +74,9 @@ func TestPumpRoundTrip(t *testing.T) {
 	pumpErr := make(chan error, 1)
 	go func() { pumpErr <- Pump(ctx, path, &dst) }()
 
-	// Give Pump a moment to open the FIFO before we write to it.
-	time.Sleep(50 * time.Millisecond)
-
+	// No sleep needed here: opening a FIFO O_WRONLY blocks until a reader
+	// has opened it, so this call itself waits for Pump's O_RDWR open above
+	// rather than racing it.
 	w, err := os.OpenFile(path, os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatalf("open for write: %v", err)

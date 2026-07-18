@@ -110,7 +110,7 @@ func (s *Supervisor) Run(ctx context.Context, argv []string) (int, error) {
 	s.stdin = stdin
 	s.mu.Unlock()
 
-	pumpCtx, cancelPumps := context.WithCancel(context.Background())
+	pumpCtx, cancelPumps := context.WithCancel(ctx)
 	defer cancelPumps()
 
 	if s.opts.NamedPipePath != "" {
@@ -167,7 +167,13 @@ func (s *Supervisor) Run(ctx context.Context, argv []string) (int, error) {
 func (s *Supervisor) stop(ctx context.Context) {
 	if s.opts.StopServerAnnounceDelay > 0 {
 		s.writeLine(fmt.Sprintf("say Server shutting down in %ds", int(s.opts.StopServerAnnounceDelay.Seconds())))
-		time.Sleep(s.opts.StopServerAnnounceDelay)
+
+		timer := time.NewTimer(s.opts.StopServerAnnounceDelay)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+		}
 	}
 
 	if s.opts.EnableRCON && rcon.Available() {
