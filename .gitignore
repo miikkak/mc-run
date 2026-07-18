@@ -1,0 +1,7 @@
+/mc-run
+/mc-run.exe
+/dist/
+*.tar.gz
+*.swp
+.DS_Store
+node_modules/

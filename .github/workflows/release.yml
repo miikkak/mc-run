@@ -1,0 +1,83 @@
+---
+name: Release
+
+on: # yamllint disable-line rule:truthy
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to deploy (e.g., v1.2.3)"
+        required: true
+        type: string
+
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{
+      github.event_name == 'workflow_dispatch' && inputs.tag || github.ref
+    }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build and Release
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7.0.0
+
+      - name: Set up Go
+        if: runner.environment == 'github-hosted'
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run tests
+        run: go test ./... -race
+
+      - name: Build binaries (linux/amd64, linux/arm64)
+        run: |
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="${arch}" \
+              go build \
+                -ldflags="-s -w -X main.version=${{ steps.version.outputs.tag }}" \
+                -o "mc-run-linux-${arch}" \
+                ./cmd/mc-run/
+          done
+
+      - name: Create release archives
+        run: |
+          for arch in amd64 arm64; do
+            cp "mc-run-linux-${arch}" mc-run
+            tar czf "mc-run_${{ steps.version.outputs.tag }}_linux_${arch}.tar.gz" \
+              mc-run \
+              README.md
+            rm mc-run
+          done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          files: |
+            mc-run_${{ steps.version.outputs.tag }}_linux_amd64.tar.gz
+            mc-run_${{ steps.version.outputs.tag }}_linux_arm64.tar.gz
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
