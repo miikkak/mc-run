@@ -30,6 +30,12 @@ func run() int {
 		stopAnnounceDelay = flag.Duration("stop-server-announce-delay", 0, "if set, announce shutdown and wait this long before sending the stop command")
 		showVersion       = flag.Bool("version", false, "print version and exit")
 	)
+	flag.BoolVar(showVersion, "v", false, "print version and exit (shorthand)")
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "mc-run supervises a Minecraft server process: it relays console\ninput from a named pipe and stdin, and shuts the server down gracefully\non SIGTERM.\n\n")
+		fmt.Fprintf(os.Stderr, "Usage:\n  %s [flags] -- <server command> [args...]\n\nFlags:\n", os.Args[0])
+		flag.PrintDefaults()
+	}
 	flag.Parse()
 
 	if *showVersion {
