@@ -11,9 +11,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+  contents: read
 
 # ==============================================================================
 # CORE SECTION - MUST BE IDENTICAL ACROSS ALL REPOS
@@ -132,6 +130,10 @@ jobs:
     runs-on: [self-hosted, linux, x64]
     timeout-minutes: 10
     needs: [check-trigger, test]
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
     # Allow running even if test was skipped (docs-only changes)
     if: |
       always() &&
