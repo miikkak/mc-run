@@ -10,14 +10,12 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+  contents: read
+  pull-requests: read
 
 jobs:
   ci-cd:
     uses: miikkak/workflows/.github/workflows/ci-cd.yml@main
-    secrets: inherit
     with:
       runner: '["self-hosted","linux","x64"]'
       test-runner: '["self-hosted","linux","x64"]'
