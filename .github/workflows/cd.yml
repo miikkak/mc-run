@@ -1,3 +1,4 @@
+---
 name: Post-Merge Pipeline
 
 on: # yamllint disable-line rule:truthy
@@ -13,215 +14,19 @@ concurrency:
 permissions:
   contents: read
 
-# ==============================================================================
-# CORE SECTION - MUST BE IDENTICAL ACROSS ALL REPOS
-# ==============================================================================
-# These jobs should be harmonized across all repositories with repository-type
-# specific adaptations (e.g., detect-changes paths differ per repo).
-#
-# Golden standards:
-#   - Container repos: mc-server-container
-#   - Non-container repos: fastly-vcl (tarball deployment variant)
-#
-# 3-phase CI/CD architecture:
-#   Phase 1: PR Validation (ci-cd.yml) → pull_request trigger
-#   Phase 2: Post-Merge Pipeline (this file) → push to main trigger
-#   Phase 3: Release & Deploy (release.yml) → tag push trigger
-#
-# Core jobs: detect-changes, check-trigger, test, semantic-release
-#
-# Release flow: label-gated semantic-release creates tag → tag push
-# triggers release.yml → build-artifacts → release created
-# ==============================================================================
-
 jobs:
-  detect-changes:
-    name: Detect Changed Files
-    runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 5
-    outputs:
-      code: ${{ steps.filter.outputs.code }}
-      docs: ${{ steps.filter.outputs.docs }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Detect file changes
-        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4
-        id: filter
-        with:
-          filters: |
-            code:
-              - '**/*.go'
-              - 'go.mod'
-              - 'go.sum'
-              - '.github/workflows/**'
-              - '.pre-commit-config.yaml'
-              - '.releaserc.json'
-            docs:
-              - '**/*.md'
-              - '.gitignore'
-              - 'LICENSE'
-              - 'CLAUDE.md'
-              - '.yamllint'
-              - '.markdownlint.json'
-              - '.github/ISSUE_TEMPLATE/**'
-              - '.github/dependabot.yml'
-
-  check-trigger:
-    name: Check Merge Trigger
-    runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 5
-    needs: detect-changes
-    if: needs.detect-changes.result == 'success'
-    outputs:
-      should_run: ${{ steps.check.outputs.should_run }}
-      skip_code_checks: ${{ steps.check.outputs.skip_code_checks }}
-    steps:
-      - name: Check trigger conditions
-        id: check
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "✅ Running full pipeline (manual trigger)"
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            echo "skip_code_checks=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          CODE_CHANGES="${{ needs.detect-changes.outputs.code }}"
-          if [[ "$CODE_CHANGES" == "true" ]]; then
-            echo "✅ Running full pipeline (code changes detected)"
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            echo "skip_code_checks=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "✅ Running pipeline (docs-only changes, skipping code checks)"
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            echo "skip_code_checks=true" >> "$GITHUB_OUTPUT"
-          fi
-
-  test:
-    name: Run Test Suite
-    runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 15
-    needs: check-trigger
-    if: needs.check-trigger.outputs.should_run == 'true' && needs.check-trigger.outputs.skip_code_checks == 'false'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Go
-        if: runner.environment == 'github-hosted'
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Run repository tests
-        run: |
-          if [[ -f .github/scripts/run-tests.sh ]]; then
-            bash .github/scripts/run-tests.sh
-          else
-            echo "ℹ️  No test script found (0/0 tests) — OK"
-          fi
-
-  semantic-release:
-    name: Publish Release
-    runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 10
-    needs: [check-trigger, test]
+  cd:
     permissions:
       contents: write
       pull-requests: write
       issues: write
-    # Allow running even if test was skipped (docs-only changes)
-    if: |
-      always() &&
-      needs.check-trigger.result == 'success' &&
-      (needs.test.result == 'success' || needs.test.result == 'skipped') &&
-      github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          # PAT required: GITHUB_TOKEN cannot push tags in a way that
-          # triggers downstream tag-based workflows (release.yml).
-          token: ${{ secrets.SEMANTIC_RELEASE_TOKEN }}
-
-      - name: Check for release label
-        id: check_label
-        env:
-          GH_TOKEN: ${{ secrets.SEMANTIC_RELEASE_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          GH_SHA: ${{ github.sha }}
-        run: |
-          # Get the PR number associated with this commit via the GitHub API
-          GH_API_OUTPUT=$(
-            gh api "/repos/${GH_REPO}/commits/${GH_SHA}/pulls" \
-              --jq '.[0].number // empty' 2>&1
-          ) || {
-            echo "⚠️  GitHub API call failed - skipping release"
-            echo "    Error: $GH_API_OUTPUT"
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          }
-          PR_NUMBER="$GH_API_OUTPUT"
-
-          if [[ -z "$PR_NUMBER" ]]; then
-            echo "ℹ️  Not a PR merge commit, skipping release"
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Get PR labels
-          GH_VIEW_OUTPUT=$(
-            gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name' 2>&1
-          ) || {
-            echo "⚠️  GitHub API call failed reading PR labels - skipping release"
-            echo "    Error: $GH_VIEW_OUTPUT"
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          }
-          LABELS="$GH_VIEW_OUTPUT"
-
-          # Check for release:* labels and determine release type
-          # Priority: major > minor > patch (highest wins if multiple labels)
-          RELEASE_TYPE=""
-          for candidate in major minor patch; do
-            if echo "$LABELS" | grep -q "^release:${candidate}$"; then
-              RELEASE_TYPE="$candidate"
-              break
-            fi
-          done
-
-          if [[ -n "$RELEASE_TYPE" ]]; then
-            echo "✅ Release label resolved to release:${RELEASE_TYPE} - proceeding with semantic-release"
-            echo "should_release=true" >> "$GITHUB_OUTPUT"
-            echo "release_type=$RELEASE_TYPE" >> "$GITHUB_OUTPUT"
-          elif echo "$LABELS" | grep -q "^release:none$"; then
-            echo "ℹ️  release:none label detected — deployment intentionally skipped"
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "ℹ️  No release label found - skipping release"
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Setup Node.js
-        if: runner.environment == 'github-hosted' && (steps.check_label.outputs.should_release == 'true')
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: "24"
-          cache: "npm"
-
-      - name: Install dependencies
-        if: steps.check_label.outputs.should_release == 'true'
-        run: npm ci
-
-      - name: Run semantic-release
-        if: steps.check_label.outputs.should_release == 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.SEMANTIC_RELEASE_TOKEN }}
-          RELEASE_TYPE: ${{ steps.check_label.outputs.release_type }}
-        run: npx semantic-release
+    uses: miikkak/workflows/.github/workflows/cd.yml@913cafcd0df6af4024ae1991ff694a2b73ecc76c # main
+    secrets:
+      SEMANTIC_RELEASE_TOKEN: ${{ secrets.SEMANTIC_RELEASE_TOKEN }}
+    with:
+      runner: '["self-hosted","linux","x64"]'
+      test-runner: '["self-hosted","linux","x64"]'
+      code-paths: >-
+        '**/*.go', 'go.mod', 'go.sum', '.github/workflows/**',
+        '.pre-commit-config.yaml', '.releaserc.json'
+      language-setup: go
