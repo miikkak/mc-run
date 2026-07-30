@@ -23,10 +23,19 @@ permissions:
   contents: write
 
 jobs:
+  validate-tag-input:
+    uses: miikkak/workflows/.github/workflows/validate-tag.yml@450c1e66f5ee1adb4bb4ea880e28c512399e37eb # main
+    with:
+      tag: ${{ inputs.tag || '' }}
+
   build-release:
     name: Build and Release
     runs-on: [self-hosted, linux, x64]
     timeout-minutes: 15
+    needs: validate-tag-input
+    if: |
+      always() &&
+      (needs.validate-tag-input.result == 'success' || needs.validate-tag-input.result == 'skipped')
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
