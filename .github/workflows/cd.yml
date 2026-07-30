@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   cd:
-    uses: miikkak/workflows/.github/workflows/cd.yml@61e21a8c9df09a3a951c620ed5e8acd63ebc1e3d # main
+    uses: miikkak/workflows/.github/workflows/cd.yml@913cafcd0df6af4024ae1991ff694a2b73ecc76c # main
     secrets:
       SEMANTIC_RELEASE_TOKEN: ${{ secrets.SEMANTIC_RELEASE_TOKEN }}
     with:
