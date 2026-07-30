@@ -63,20 +63,24 @@ jobs:
         run: go test ./... -race
 
       - name: Build binaries (linux/amd64, linux/arm64)
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH="${arch}" \
               go build \
-                -ldflags="-s -w -X main.version=${{ steps.version.outputs.tag }}" \
+                -ldflags="-s -w -X main.version=${RELEASE_TAG}" \
                 -o "mc-run-linux-${arch}" \
                 ./cmd/mc-run/
           done
 
       - name: Create release archives
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
           for arch in amd64 arm64; do
             cp "mc-run-linux-${arch}" mc-run
-            tar czf "mc-run_${{ steps.version.outputs.tag }}_linux_${arch}.tar.gz" \
+            tar czf "mc-run_${RELEASE_TAG}_linux_${arch}.tar.gz" \
               mc-run \
               README.md
             rm mc-run
