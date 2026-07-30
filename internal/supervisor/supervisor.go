@@ -93,6 +93,17 @@ func (s *Supervisor) Run(ctx context.Context, argv []string) (int, error) {
 		return 0, errors.New("supervisor: no command given")
 	}
 
+	if s.opts.NamedPipePath != "" {
+		if err := namedpipe.Ensure(s.opts.NamedPipePath); err != nil {
+			return 0, fmt.Errorf("supervisor: %w", err)
+		}
+		defer func() {
+			if err := os.Remove(s.opts.NamedPipePath); err != nil && !os.IsNotExist(err) {
+				s.opts.Logger.Warn("failed to remove named pipe", "path", s.opts.NamedPipePath, "error", err)
+			}
+		}()
+	}
+
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -114,15 +125,6 @@ func (s *Supervisor) Run(ctx context.Context, argv []string) (int, error) {
 	defer cancelPumps()
 
 	if s.opts.NamedPipePath != "" {
-		if err := namedpipe.Ensure(s.opts.NamedPipePath); err != nil {
-			return 0, fmt.Errorf("supervisor: %w", err)
-		}
-		defer func() {
-			if err := os.Remove(s.opts.NamedPipePath); err != nil && !os.IsNotExist(err) {
-				s.opts.Logger.Warn("failed to remove named pipe", "path", s.opts.NamedPipePath, "error", err)
-			}
-		}()
-
 		go func() {
 			if err := namedpipe.Pump(pumpCtx, s.opts.NamedPipePath, s); err != nil {
 				s.opts.Logger.Warn("named pipe pump exited", "error", err)
@@ -146,19 +148,31 @@ func (s *Supervisor) Run(ctx context.Context, argv []string) (int, error) {
 		return exitCodeFrom(err), nil
 	case <-sigCh:
 		s.opts.Logger.Info("received SIGTERM, stopping server", "stop_duration", s.opts.StopDuration)
-		s.stop(ctx)
+		return s.gracefulStop(ctx, cmd, waitCh)
+	case <-ctx.Done():
+		// ctx is already done, so a fresh context is used for the stop
+		// sequence itself (announce delay, RCON timeout) rather than one
+		// that would return immediately.
+		s.opts.Logger.Info("context cancelled, stopping server", "stop_duration", s.opts.StopDuration)
+		return s.gracefulStop(context.Background(), cmd, waitCh)
+	}
+}
 
-		timer := time.NewTimer(s.opts.StopDuration)
-		defer timer.Stop()
+// gracefulStop sends the stop command via stop, then waits up to
+// StopDuration for the child to exit before killing it.
+func (s *Supervisor) gracefulStop(ctx context.Context, cmd *exec.Cmd, waitCh <-chan error) (int, error) {
+	s.stop(ctx)
 
-		select {
-		case err := <-waitCh:
-			return exitCodeFrom(err), nil
-		case <-timer.C:
-			s.opts.Logger.Warn("stop duration exceeded, killing child process")
-			_ = cmd.Process.Kill()
-			return exitCodeFrom(<-waitCh), nil
-		}
+	timer := time.NewTimer(s.opts.StopDuration)
+	defer timer.Stop()
+
+	select {
+	case err := <-waitCh:
+		return exitCodeFrom(err), nil
+	case <-timer.C:
+		s.opts.Logger.Warn("stop duration exceeded, killing child process")
+		_ = cmd.Process.Kill()
+		return exitCodeFrom(<-waitCh), nil
 	}
 }
 
