@@ -12,12 +12,14 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+  contents: read
 
 jobs:
   cd:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
     uses: miikkak/workflows/.github/workflows/cd.yml@913cafcd0df6af4024ae1991ff694a2b73ecc76c # main
     secrets:
       SEMANTIC_RELEASE_TOKEN: ${{ secrets.SEMANTIC_RELEASE_TOKEN }}
