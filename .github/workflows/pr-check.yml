@@ -11,5 +11,5 @@ permissions:
 
 jobs:
   pre-commit:
-    uses: miikkak/workflows/.github/workflows/pr-check.yml@d3f9687df4d13cf6a2f8ba34daa109974e03ce12 # main
+    uses: miikkak/workflows/.github/workflows/pr-check.yml@9cf5b8444ae2c6e19012809b6b14302188a8bcf4 # main
     secrets: inherit
