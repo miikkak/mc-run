@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   validate-tag-input:
-    uses: miikkak/workflows/.github/workflows/validate-tag.yml@b43a69f8bd367f9beb0dfd8d84b93294d27c387b # main
+    uses: miikkak/workflows/.github/workflows/validate-tag.yml@1f1f31ffb621afdf34a90c85089cabc3c1d2c59b # main
     with:
       tag: ${{ inputs.tag || '' }}
 
