@@ -10,6 +10,7 @@ exempt_patterns:
   - ".editorconfig"
   - ".commitlintrc.json"
   - "renovate.json"
+  - ".pre-commit-config.yaml"
   - ".github/ISSUE_TEMPLATE/**"
   - ".github/PULL_REQUEST_TEMPLATE.md"
   - ".github/CODEOWNERS"
