@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   auto-update:
-    uses: miikkak/workflows/.github/workflows/auto-update.yml@3c052e17e880865f594222663c716ba3a9989667 # main
+    uses: miikkak/workflows/.github/workflows/auto-update.yml@e939711630e0f2ff79656e310ecae181a0527f43 # main
     secrets: inherit
     with:
       force: ${{ inputs.force || false }}
