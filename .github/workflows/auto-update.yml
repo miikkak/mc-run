@@ -3,8 +3,8 @@ name: Auto-Update Dependencies
 
 on: # yamllint disable-line rule:truthy
   schedule:
-    # Run weekly on Monday at 02:00 UTC
-    - cron: '0 2 * * 1'
+    # Run daily at 02:00 UTC
+    - cron: '0 2 * * *'
   workflow_dispatch:
     inputs:
       force:
