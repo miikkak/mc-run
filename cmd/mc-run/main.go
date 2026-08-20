@@ -36,8 +36,9 @@ func main() {
 }
 
 // runPID implements `mc-run pid --name <comm>`: it prints the PID of the
-// lowest-numbered process whose /proc/<pid>/comm matches name, for images
-// that don't ship pgrep/ps.
+// single process whose /proc/<pid>/comm matches name, for images that
+// don't ship pgrep/ps. It fails if zero or more than one process matches —
+// callers that need one unambiguous target (e.g. jcmd) must not guess.
 func runPID(args []string) int {
 	fs := flag.NewFlagSet("mc-run pid", flag.ContinueOnError)
 	name := fs.String("name", "", "process comm name to search for (required)")

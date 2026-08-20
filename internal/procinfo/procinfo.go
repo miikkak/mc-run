@@ -16,36 +16,51 @@ import (
 // ErrNotFound is returned when no process or status field matches the query.
 var ErrNotFound = errors.New("procinfo: not found")
 
-// FindPIDByComm scans procRoot (typically "/proc") for a process whose comm
+// ErrAmbiguous is returned when a comm-name query matches more than one
+// process, so the caller can't safely act on a single PID (e.g. jcmd's
+// attach protocol targets exactly one process).
+var ErrAmbiguous = errors.New("procinfo: ambiguous")
+
+// FindPIDByComm scans procRoot (typically "/proc") for processes whose comm
 // (the kernel-truncated command name in /proc/<pid>/comm) equals name
-// exactly, returning the lowest matching PID. It returns ErrNotFound if no
-// process matches.
+// exactly. It returns ErrNotFound if none match, and ErrAmbiguous if more
+// than one does — callers that need a single, unambiguous target (like
+// jcmd) should not fall back to picking the lowest PID silently.
 func FindPIDByComm(procRoot, name string) (int, error) {
 	entries, err := os.ReadDir(procRoot)
 	if err != nil {
 		return 0, fmt.Errorf("procinfo: read %s: %w", procRoot, err)
 	}
 
-	var pids []int
+	var candidates []int
 	for _, entry := range entries {
 		pid, err := strconv.Atoi(entry.Name())
 		if err != nil {
 			continue // not a PID directory
 		}
-		pids = append(pids, pid)
+		candidates = append(candidates, pid)
 	}
-	sort.Ints(pids)
+	sort.Ints(candidates)
 
-	for _, pid := range pids {
+	var matches []int
+	for _, pid := range candidates {
 		comm, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "comm"))
 		if err != nil {
 			continue // process exited between readdir and read, or unreadable
 		}
 		if strings.TrimSpace(string(comm)) == name {
-			return pid, nil
+			matches = append(matches, pid)
 		}
 	}
-	return 0, fmt.Errorf("procinfo: no process named %q: %w", name, ErrNotFound)
+
+	switch len(matches) {
+	case 0:
+		return 0, fmt.Errorf("procinfo: no process named %q: %w", name, ErrNotFound)
+	case 1:
+		return matches[0], nil
+	default:
+		return 0, fmt.Errorf("procinfo: multiple processes named %q (pids %v): %w", name, matches, ErrAmbiguous)
+	}
 }
 
 // StatusField reads /proc/<pid>/status under procRoot and returns the first
