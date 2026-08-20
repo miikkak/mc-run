@@ -144,9 +144,9 @@ func (s *Supervisor) Run(ctx context.Context, argv []string) (int, error) {
 	// dumps goroutine stacks and terminates the process, so an accidental
 	// SIGQUIT (e.g. a jcmd/kill invocation meant for the java child but
 	// misdirected at PID 1) would take the whole container down. Trap and
-	// log it instead of letting the runtime default apply. Not forwarded to
-	// the child, consistent with SIGTERM below: supervisor signals are
-	// translated into supervised actions rather than passed through raw.
+	// log it instead of letting the runtime default apply. This is a no-op
+	// by design: unlike SIGTERM below, SIGQUIT triggers no action and is
+	// never forwarded to the child raw.
 	sigQuitCh := make(chan os.Signal, 1)
 	signal.Notify(sigQuitCh, syscall.SIGQUIT)
 	defer signal.Stop(sigQuitCh)
