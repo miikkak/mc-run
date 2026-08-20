@@ -45,17 +45,14 @@ func TestFindPIDByComm(t *testing.T) {
 	}
 }
 
-func TestFindPIDByCommLowestMatch(t *testing.T) {
+func TestFindPIDByCommAmbiguous(t *testing.T) {
 	root := t.TempDir()
 	writeProc(t, root, 100, "java", "")
 	writeProc(t, root, 8, "java", "")
 
-	pid, err := FindPIDByComm(root, "java")
-	if err != nil {
-		t.Fatalf("FindPIDByComm: %v", err)
-	}
-	if pid != 8 {
-		t.Errorf("got pid %d, want 8 (lowest)", pid)
+	_, err := FindPIDByComm(root, "java")
+	if !errors.Is(err, ErrAmbiguous) {
+		t.Fatalf("got err %v, want ErrAmbiguous", err)
 	}
 }
 

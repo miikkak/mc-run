@@ -78,11 +78,11 @@ Minimal-footprint container images don't ship `pgrep`/`ps`, so scripts that `pod
 into a running container previously scanned `/proc` by hand. `mc-run` already runs as PID 1
 with native `/proc` access, so it exposes that as subcommands instead:
 
-| Command                    | Description                                                                                        |
-| -------------------------- | -------------------------------------------------------------------------------------------------- |
-| `mc-run pid --name <comm>` | Prints the lowest PID whose `/proc/<pid>/comm` equals `<comm>` (e.g. `java`). Exit 1 if not found. |
-| `mc-run uid`               | Prints the real UID that PID 1 (the container's main process) runs as, from `/proc/1/status`.      |
-| `mc-run gid`               | Same, for the real GID.                                                                            |
+| Command                    | Description                                                                                                                                                                          |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `mc-run pid --name <comm>` | Prints the PID of the single process whose `/proc/<pid>/comm` equals `<comm>` (e.g. `java`). Exit 1 if zero or more than one process matches — it never guesses which one you meant. |
+| `mc-run uid`               | Prints the real UID that PID 1 (the container's main process) runs as, from `/proc/1/status`.                                                                                        |
+| `mc-run gid`               | Same, for the real GID.                                                                                                                                                              |
 
 These read-only lookups have no flags of their own beyond `pid`'s `--name`, and don't touch
 the supervisor, RCON, or named-pipe machinery — they're meant to be run via
