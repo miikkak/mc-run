@@ -98,10 +98,15 @@ func Apply(pluginsDir string, logger *slog.Logger) ([]Update, error) {
 			continue
 		}
 
-		newPath, err := replace(pluginPath, updatePath)
+		newPath, err, cleanupErr := replace(pluginPath, updatePath)
 		if err != nil {
 			logger.Warn("pluginupdate: failed to apply update", "id", id, "from", updatePath, "to", pluginPath, "error", err)
 			continue
+		}
+		if cleanupErr != nil {
+			// The update itself already took effect (newPath holds the new
+			// content) — this is a leftover-file warning, not a failure.
+			logger.Warn("pluginupdate: update applied but cleanup left stale files behind", "id", id, "path", newPath, "error", cleanupErr)
 		}
 
 		logger.Info("pluginupdate: updated plugin", "id", id, "old", filepath.Base(pluginPath), "new", filepath.Base(newPath))
@@ -172,36 +177,46 @@ func readPluginID(jarPath string) (string, error) {
 // (e.g. disk full) never leaves a corrupted, partially-written jar in
 // plugins/: pluginPath is untouched until the new content is confirmed on
 // disk.
-func replace(pluginPath, updatePath string) (string, error) {
+//
+// Once the rename succeeds the update has taken effect — the returned
+// newPath already holds the new content. Everything after that point
+// (removing the stale old-name jar, removing the update-folder source) is
+// best-effort cleanup: a failure there is reported via cleanupErr, not err,
+// so callers don't mistake an update that actually applied for one that
+// didn't.
+func replace(pluginPath, updatePath string) (newPath string, err error, cleanupErr error) {
 	dir := filepath.Dir(pluginPath)
 
 	oldInfo, err := os.Stat(pluginPath)
 	if err != nil {
-		return "", fmt.Errorf("stat %s: %w", pluginPath, err)
+		return "", fmt.Errorf("stat %s: %w", pluginPath, err), nil
 	}
 
 	tmpPath, err := writeTempFile(dir, updatePath, oldInfo.Mode().Perm())
 	if err != nil {
-		return "", fmt.Errorf("stage update from %s: %w", updatePath, err)
+		return "", fmt.Errorf("stage update from %s: %w", updatePath, err), nil
 	}
 	defer func() { _ = os.Remove(tmpPath) }() // no-op once successfully renamed away
 
-	newPath := filepath.Join(dir, filepath.Base(updatePath))
+	newPath = filepath.Join(dir, filepath.Base(updatePath))
 	if err := os.Rename(tmpPath, newPath); err != nil {
-		return "", fmt.Errorf("rename staged update to %s: %w", newPath, err)
+		return "", fmt.Errorf("rename staged update to %s: %w", newPath, err), nil
 	}
 
+	var cleanupFailures []string
 	if newPath != pluginPath {
-		if err := os.Remove(pluginPath); err != nil && !os.IsNotExist(err) {
-			return "", fmt.Errorf("remove old jar %s: %w", pluginPath, err)
+		if rmErr := os.Remove(pluginPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			cleanupFailures = append(cleanupFailures, fmt.Sprintf("remove old jar %s: %v", pluginPath, rmErr))
 		}
 	}
-
-	if err := os.Remove(updatePath); err != nil {
-		return "", fmt.Errorf("remove %s: %w", updatePath, err)
+	if rmErr := os.Remove(updatePath); rmErr != nil {
+		cleanupFailures = append(cleanupFailures, fmt.Sprintf("remove %s: %v", updatePath, rmErr))
+	}
+	if len(cleanupFailures) > 0 {
+		cleanupErr = errors.New(strings.Join(cleanupFailures, "; "))
 	}
 
-	return newPath, nil
+	return newPath, nil, cleanupErr
 }
 
 // writeTempFile copies src into a new temp file in dir with the given

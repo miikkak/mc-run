@@ -212,6 +212,49 @@ func TestApply_SameFilenameOverwritesInPlace(t *testing.T) {
 	}
 }
 
+func TestApply_CleanupFailureStillCountsAsApplied(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: permission bits don't block unlink")
+	}
+
+	dir := t.TempDir()
+	updateDir := filepath.Join(dir, "update")
+	if err := os.MkdirAll(updateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	oldPath := filepath.Join(dir, "foo-1.0.jar")
+	updatePath := filepath.Join(updateDir, "foo-2.0.jar")
+	writeJar(t, oldPath, "foo")
+	writeJar(t, updatePath, "foo")
+
+	// Deny write on updateDir so the post-rename os.Remove(updatePath)
+	// fails, even though the rename that actually applies the update
+	// (into dir, not updateDir) already succeeded.
+	if err := os.Chmod(updateDir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(updateDir, 0o755) })
+
+	updates, err := Apply(dir, testLogger())
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(updates) != 1 {
+		t.Fatalf("expected the update to still be recorded as applied despite the cleanup failure, got %d: %v", len(updates), updates)
+	}
+
+	newPath := filepath.Join(dir, "foo-2.0.jar")
+	if _, err := os.Stat(newPath); err != nil {
+		t.Fatalf("new jar should exist with the update's content: %v", err)
+	}
+	// Confirm the leftover really is there (proving this test exercises
+	// the cleanup-failure path, not a no-op).
+	if _, err := os.Stat(updatePath); err != nil {
+		t.Fatalf("expected the update-folder source to remain as an uncleaned leftover: %v", err)
+	}
+}
+
 func TestApply_NoMatchingID(t *testing.T) {
 	dir := t.TempDir()
 	updateDir := filepath.Join(dir, "update")
