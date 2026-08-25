@@ -64,6 +64,51 @@ func TestApply_NoUpdateDir(t *testing.T) {
 	}
 }
 
+func TestApply_UpdateDirIsAFile(t *testing.T) {
+	dir := t.TempDir()
+	// "update" exists but isn't a directory — Paper's own check
+	// (updateDirectory.isDirectory()) silently ignores this too.
+	if err := os.WriteFile(filepath.Join(dir, "update"), []byte("not a dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeJar(t, filepath.Join(dir, "foo-1.0.jar"), "foo")
+
+	updates, err := Apply(dir, testLogger())
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(updates) != 0 {
+		t.Fatalf("expected no updates, got %v", updates)
+	}
+}
+
+func TestApply_UpdateDirUnreadablePropagatesError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: permission bits don't block access")
+	}
+
+	dir := t.TempDir()
+	updateDir := filepath.Join(dir, "update")
+	if err := os.MkdirAll(updateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Deny execute on the parent so os.Stat(updateDir) itself fails with a
+	// permission error rather than ErrNotExist — this must NOT be treated
+	// as "no update folder."
+	if err := os.Chmod(dir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	_, err := Apply(dir, testLogger())
+	if err == nil {
+		t.Fatal("expected an error, got nil")
+	}
+	if os.IsNotExist(err) {
+		t.Fatalf("permission error should not be reported as ErrNotExist: %v", err)
+	}
+}
+
 func TestApply_MatchesByDeclaredID(t *testing.T) {
 	dir := t.TempDir()
 	updateDir := filepath.Join(dir, "update")
@@ -94,6 +139,73 @@ func TestApply_MatchesByDeclaredID(t *testing.T) {
 	}
 	if _, err := os.Stat(newPath); err != nil {
 		t.Fatalf("renamed jar should exist: %v", err)
+	}
+	if _, err := os.Stat(updatePath); !os.IsNotExist(err) {
+		t.Fatalf("update-folder source should have been removed, stat err = %v", err)
+	}
+}
+
+func TestApply_PreservesOldFilePermissions(t *testing.T) {
+	dir := t.TempDir()
+	updateDir := filepath.Join(dir, "update")
+	if err := os.MkdirAll(updateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	oldPath := filepath.Join(dir, "foo-1.0.jar")
+	updatePath := filepath.Join(updateDir, "foo-2.0.jar")
+	writeJar(t, oldPath, "foo")
+	writeJar(t, updatePath, "foo")
+
+	// Deliberately non-default so this can't pass by coincidentally
+	// matching os.CreateTemp's own 0o600 default.
+	if err := os.Chmod(oldPath, 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	updates, err := Apply(dir, testLogger())
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(updates) != 1 {
+		t.Fatalf("expected 1 update, got %d: %v", len(updates), updates)
+	}
+
+	info, err := os.Stat(updates[0].NewPath)
+	if err != nil {
+		t.Fatalf("stat updated jar: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o640 {
+		t.Fatalf("expected updated jar to keep the old jar's 0640 permissions, got %#o", perm)
+	}
+}
+
+func TestApply_SameFilenameOverwritesInPlace(t *testing.T) {
+	dir := t.TempDir()
+	updateDir := filepath.Join(dir, "update")
+	if err := os.MkdirAll(updateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Old and update jar share the same filename, exercising the
+	// newPath == pluginPath branch in replace().
+	path := filepath.Join(dir, "foo.jar")
+	updatePath := filepath.Join(updateDir, "foo.jar")
+	writeJar(t, path, "foo")
+	writeJar(t, updatePath, "foo")
+
+	updates, err := Apply(dir, testLogger())
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(updates) != 1 {
+		t.Fatalf("expected 1 update, got %d: %v", len(updates), updates)
+	}
+	if updates[0].NewPath != path {
+		t.Fatalf("expected new path to equal old path, got %s", updates[0].NewPath)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("jar should still exist under its original name: %v", err)
 	}
 	if _, err := os.Stat(updatePath); !os.IsNotExist(err) {
 		t.Fatalf("update-folder source should have been removed, stat err = %v", err)

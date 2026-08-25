@@ -48,9 +48,13 @@ func Apply(pluginsDir string, logger *slog.Logger) ([]Update, error) {
 	}
 
 	updateDir := filepath.Join(pluginsDir, "update")
-	info, err := os.Stat(updateDir)
-	if err != nil || !info.IsDir() {
+	switch info, err := os.Stat(updateDir); {
+	case errors.Is(err, os.ErrNotExist):
 		return nil, nil // no update folder: nothing to do, not an error
+	case err != nil:
+		return nil, fmt.Errorf("pluginupdate: stat %s: %w", updateDir, err)
+	case !info.IsDir():
+		return nil, nil // something else named "update" exists: silently ignore, matching Paper
 	}
 
 	updateJars, err := listJars(updateDir)
@@ -159,18 +163,37 @@ func readPluginID(jarPath string) (string, error) {
 	return "", fmt.Errorf("%w: %s", errNoDescriptor, jarPath)
 }
 
-// replace overwrites pluginPath's content with updatePath's, renames the
-// result to updatePath's filename (matching Paper: the plugins/ jar ends up
-// named like the update jar, not its old name), then removes updatePath.
+// replace atomically installs updatePath's content in place of pluginPath,
+// under a name matching updatePath's filename (matching Paper: the
+// plugins/ jar ends up named like the update jar, not its old name), then
+// removes updatePath. The update jar's content is fully written to a temp
+// file — inheriting pluginPath's existing permission bits — before any
+// rename touches pluginPath or the final name, so a failure partway through
+// (e.g. disk full) never leaves a corrupted, partially-written jar in
+// plugins/: pluginPath is untouched until the new content is confirmed on
+// disk.
 func replace(pluginPath, updatePath string) (string, error) {
-	if err := copyFile(updatePath, pluginPath); err != nil {
-		return "", fmt.Errorf("copy %s to %s: %w", updatePath, pluginPath, err)
+	dir := filepath.Dir(pluginPath)
+
+	oldInfo, err := os.Stat(pluginPath)
+	if err != nil {
+		return "", fmt.Errorf("stat %s: %w", pluginPath, err)
 	}
 
-	newPath := filepath.Join(filepath.Dir(pluginPath), filepath.Base(updatePath))
+	tmpPath, err := writeTempFile(dir, updatePath, oldInfo.Mode().Perm())
+	if err != nil {
+		return "", fmt.Errorf("stage update from %s: %w", updatePath, err)
+	}
+	defer func() { _ = os.Remove(tmpPath) }() // no-op once successfully renamed away
+
+	newPath := filepath.Join(dir, filepath.Base(updatePath))
+	if err := os.Rename(tmpPath, newPath); err != nil {
+		return "", fmt.Errorf("rename staged update to %s: %w", newPath, err)
+	}
+
 	if newPath != pluginPath {
-		if err := os.Rename(pluginPath, newPath); err != nil {
-			return "", fmt.Errorf("rename %s to %s: %w", pluginPath, newPath, err)
+		if err := os.Remove(pluginPath); err != nil && !os.IsNotExist(err) {
+			return "", fmt.Errorf("remove old jar %s: %w", pluginPath, err)
 		}
 	}
 
@@ -181,21 +204,37 @@ func replace(pluginPath, updatePath string) (string, error) {
 	return newPath, nil
 }
 
-func copyFile(src, dst string) error {
+// writeTempFile copies src into a new temp file in dir with the given
+// permission bits, fsyncs and closes it, and returns its path. The caller
+// is responsible for renaming (or removing) it.
+func writeTempFile(dir, src string, perm os.FileMode) (string, error) {
 	in, err := os.Open(src)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer func() { _ = in.Close() }()
 
-	out, err := os.Create(dst)
+	tmp, err := os.CreateTemp(dir, ".pluginupdate-*.jar.tmp")
 	if err != nil {
-		return err
+		return "", err
 	}
-	defer func() { _ = out.Close() }()
+	tmpPath := tmp.Name()
 
-	if _, err := io.Copy(out, in); err != nil {
-		return err
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return "", err
 	}
-	return out.Close()
+	if _, err := io.Copy(tmp, in); err != nil {
+		_ = tmp.Close()
+		return "", err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+
+	return tmpPath, nil
 }
