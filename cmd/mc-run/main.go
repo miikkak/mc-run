@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/miikkak/mc-run/internal/pluginupdate"
 	"github.com/miikkak/mc-run/internal/procinfo"
 	"github.com/miikkak/mc-run/internal/rcon"
 	"github.com/miikkak/mc-run/internal/supervisor"
@@ -30,6 +31,8 @@ func main() {
 		os.Exit(runID("Uid"))
 	case len(os.Args) > 1 && os.Args[1] == "gid":
 		os.Exit(runID("Gid"))
+	case len(os.Args) > 1 && os.Args[1] == "update-plugins":
+		os.Exit(runUpdatePlugins(os.Args[2:]))
 	default:
 		os.Exit(run())
 	}
@@ -80,6 +83,38 @@ func runID(field string) int {
 		return 1
 	}
 	fmt.Println(value)
+	return 0
+}
+
+// runUpdatePlugins implements `mc-run update-plugins --dir <plugins-dir>`:
+// it replays Paper's plugins/update mechanism for Velocity (which has none
+// of its own — PaperMC/Velocity#809), matching jars by the "id" declared in
+// each jar's velocity-plugin.json rather than by filename. Meant to run
+// once, before the Velocity JVM starts.
+func runUpdatePlugins(args []string) int {
+	fs := flag.NewFlagSet("mc-run update-plugins", flag.ContinueOnError)
+	dir := fs.String("dir", "", "plugins directory to scan (required); update jars are read from <dir>/update")
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage:\n  mc-run update-plugins --dir <plugins-dir>\n\nFlags:\n")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if *dir == "" {
+		fmt.Fprintln(os.Stderr, "mc-run update-plugins: --dir is required")
+		return 2
+	}
+
+	updates, err := pluginupdate.Apply(*dir, slog.Default())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mc-run update-plugins: %v\n", err)
+		return 1
+	}
+	fmt.Printf("mc-run update-plugins: applied %d update(s)\n", len(updates))
 	return 0
 }
 

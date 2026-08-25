@@ -88,6 +88,26 @@ These read-only lookups have no flags of their own beyond `pid`'s `--name`, and 
 the supervisor, RCON, or named-pipe machinery — they're meant to be run via
 `podman exec <container> mc-run <subcommand>` from outside the container.
 
+## `update-plugins`: Velocity's missing update folder
+
+PaperMC servers copy jars from `plugins/update/` over `plugins/` on startup, matching by the
+plugin name declared inside each jar. Velocity has no equivalent
+([PaperMC/Velocity#809](https://github.com/PaperMC/Velocity/issues/809)), so `mc-run` replays
+the same sequence before the JVM starts:
+
+```sh
+mc-run update-plugins --dir /data/plugins
+```
+
+For each jar directly in `<dir>/update`, its declared Velocity plugin `id` (read from the
+`velocity-plugin.json` entry inside the jar, not the filename) is matched against the `id` of a
+jar directly in `<dir>`. On a match: the old jar's content is replaced with the update's, the
+result is renamed to the update jar's filename, and the update-folder source is removed —
+matching Paper's `io.papermc.paper.plugin.provider.source.FileProviderSource#checkUpdate`
+(id-based matching, not the legacy CraftBukkit filename-based match). A jar that can't be
+opened as a zip, has no `velocity-plugin.json`, or has no matching counterpart is skipped and
+logged; it never aborts the rest of the run.
+
 ## Out of scope
 
 SSH/websocket remote console, `-shell`, `-detach-stdin`, `-bootstrap`, and the `SIGUSR1`
