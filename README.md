@@ -108,6 +108,27 @@ matching Paper's `io.papermc.paper.plugin.provider.source.FileProviderSource#che
 opened as a zip, has no `velocity-plugin.json`, or has no matching counterpart is skipped and
 logged; it never aborts the rest of the run.
 
+## `install-plugins`: adding a brand-new plugin
+
+Neither Paper's `plugins/update/` nor `update-plugins` above can install a plugin that has no
+already-installed counterpart — both only ever replace a jar that's already in `plugins/`. A
+`plugins/install/` folder gets a brand-new jar into `plugins/` before the JVM starts, applied
+alongside `update-plugins` ([#77](https://github.com/miikkak/mc-run/issues/77)):
+
+```sh
+mc-run install-plugins --dir /data/plugins --server-type velocity
+mc-run install-plugins --dir /data/plugins --server-type paper
+```
+
+For each jar directly in `<dir>/install`, mc-run checks whether it declares a descriptor for
+`--server-type` before copying it: `velocity-plugin.json` for `velocity`, `plugin.yml` or
+`paper-plugin.yml` for `paper`. This is a presence check, not an exclusivity check — a fat jar
+bundling descriptors for several platforms (a common pattern) still matches on each platform it
+declares. On a match, the jar is copied into `<dir>` under its own filename and removed from
+`install/`. A jar with no matching descriptor, a jar that can't be opened as a zip, or a jar
+whose filename already exists in `<dir>` (use `plugins/update/` for that case instead) is
+skipped and logged; it never aborts the rest of the run.
+
 ## Out of scope
 
 SSH/websocket remote console, `-shell`, `-detach-stdin`, `-bootstrap`, and the `SIGUSR1`
