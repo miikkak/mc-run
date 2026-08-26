@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/miikkak/mc-run/internal/plugininstall"
 	"github.com/miikkak/mc-run/internal/pluginupdate"
 	"github.com/miikkak/mc-run/internal/procinfo"
 	"github.com/miikkak/mc-run/internal/rcon"
@@ -33,6 +34,8 @@ func main() {
 		os.Exit(runID("Gid"))
 	case len(os.Args) > 1 && os.Args[1] == "update-plugins":
 		os.Exit(runUpdatePlugins(os.Args[2:]))
+	case len(os.Args) > 1 && os.Args[1] == "install-plugins":
+		os.Exit(runInstallPlugins(os.Args[2:]))
 	default:
 		os.Exit(run())
 	}
@@ -115,6 +118,50 @@ func runUpdatePlugins(args []string) int {
 		return 1
 	}
 	fmt.Printf("mc-run update-plugins: applied %d update(s)\n", len(updates))
+	return 0
+}
+
+// runInstallPlugins implements
+// `mc-run install-plugins --dir <plugins-dir> --server-type <velocity|paper>`:
+// it copies each jar directly in <dir>/install that declares a descriptor
+// matching --server-type into <dir>, for plugins with no already-installed
+// counterpart to version-bump via update-plugins. Meant to run once, before
+// the JVM starts, alongside update-plugins.
+func runInstallPlugins(args []string) int {
+	fs := flag.NewFlagSet("mc-run install-plugins", flag.ContinueOnError)
+	dir := fs.String("dir", "", "plugins directory to scan (required); new jars are read from <dir>/install")
+	serverTypeFlag := fs.String("server-type", "", "server type the new jars must declare a descriptor for: velocity or paper (required)")
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage:\n  mc-run install-plugins --dir <plugins-dir> --server-type <velocity|paper>\n\nFlags:\n")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if *dir == "" {
+		fmt.Fprintln(os.Stderr, "mc-run install-plugins: --dir is required")
+		return 2
+	}
+	if *serverTypeFlag == "" {
+		fmt.Fprintln(os.Stderr, "mc-run install-plugins: --server-type is required")
+		return 2
+	}
+
+	serverType, err := plugininstall.ParseServerType(*serverTypeFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mc-run install-plugins: %v\n", err)
+		return 2
+	}
+
+	installs, err := plugininstall.Apply(*dir, serverType, slog.Default())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mc-run install-plugins: %v\n", err)
+		return 1
+	}
+	fmt.Printf("mc-run install-plugins: installed %d plugin(s)\n", len(installs))
 	return 0
 }
 
