@@ -85,6 +85,11 @@ func Apply(pluginsDir string, serverType ServerType, logger *slog.Logger) ([]Ins
 		logger = slog.Default()
 	}
 
+	entries := descriptorEntries(serverType)
+	if entries == nil {
+		return nil, fmt.Errorf("plugininstall: unknown server type %v", serverType)
+	}
+
 	installDir := filepath.Join(pluginsDir, "install")
 	switch info, err := os.Stat(installDir); {
 	case errors.Is(err, os.ErrNotExist):
@@ -99,8 +104,6 @@ func Apply(pluginsDir string, serverType ServerType, logger *slog.Logger) ([]Ins
 	if err != nil {
 		return nil, fmt.Errorf("plugininstall: list %s: %w", installDir, err)
 	}
-
-	entries := descriptorEntries(serverType)
 
 	var applied []Install
 	for _, jarPath := range installJars {

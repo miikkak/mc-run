@@ -104,6 +104,20 @@ func TestApply_InstallDirUnreadablePropagatesError(t *testing.T) {
 	}
 }
 
+func TestApply_UnknownServerTypeErrors(t *testing.T) {
+	dir := t.TempDir()
+	installDir := filepath.Join(dir, "install")
+	if err := os.MkdirAll(installDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeJarWithEntries(t, filepath.Join(installDir, "foo.jar"), "velocity-plugin.json")
+
+	_, err := Apply(dir, ServerType(99), testLogger())
+	if err == nil {
+		t.Fatal("expected an error for an unknown ServerType, got nil")
+	}
+}
+
 func TestApply_VelocityJarInstallsUnderVelocityOnly(t *testing.T) {
 	dir := t.TempDir()
 	installDir := filepath.Join(dir, "install")
