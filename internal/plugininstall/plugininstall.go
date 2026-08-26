@@ -87,7 +87,7 @@ func Apply(pluginsDir string, serverType ServerType, logger *slog.Logger) ([]Ins
 
 	entries := descriptorEntries(serverType)
 	if entries == nil {
-		return nil, fmt.Errorf("plugininstall: unknown server type %v", serverType)
+		return nil, fmt.Errorf("plugininstall: unknown server type %d", int(serverType))
 	}
 
 	installDir := filepath.Join(pluginsDir, "install")
