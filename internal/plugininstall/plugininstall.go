@@ -117,6 +117,10 @@ func Apply(pluginsDir string, serverType ServerType, logger *slog.Logger) ([]Ins
 			continue
 		}
 
+		// This existence check and install()'s rename below aren't atomic
+		// with each other — safe because Apply runs once, single-threaded,
+		// at container startup; it relies on nothing else writing to
+		// pluginsDir concurrently.
 		dest := filepath.Join(pluginsDir, filepath.Base(jarPath))
 		if _, err := os.Stat(dest); err == nil {
 			logger.Warn("plugininstall: skipping jar: already exists in plugins/, use plugins/update/ to update an existing plugin", "path", jarPath, "dest", dest)
@@ -164,7 +168,10 @@ func listJars(dir string) ([]string, error) {
 }
 
 // hasZipEntry reports whether jarPath, opened as a zip, contains any entry
-// whose name exactly matches one of names.
+// whose name exactly matches one of names. Velocity and Paper both look for
+// their descriptors at the jar root, so a nested or prefixed path (e.g.
+// under META-INF/) is deliberately treated as no match, same as
+// pluginupdate's readPluginID.
 func hasZipEntry(jarPath string, names ...string) (bool, error) {
 	r, err := zip.OpenReader(jarPath)
 	if err != nil {
