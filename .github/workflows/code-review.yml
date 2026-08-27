@@ -14,7 +14,7 @@ permissions:
 jobs:
   review:
     if: github.event.pull_request.draft == false
-    uses: miikkak/workflows/.github/workflows/code-review.yml@b2fba38516c51472610b61160ddaee133eb6c068 # main
+    uses: miikkak/workflows/.github/workflows/code-review.yml@d2cb7afa8bb042add0d689a7357654814d5ab176 # main
     with:
       enabled: true
     secrets: inherit
