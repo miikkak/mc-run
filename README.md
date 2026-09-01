@@ -67,8 +67,10 @@ Read directly from the environment (matching `entrypoint.sh`'s existing variable
 as flags:
 
 - `ENABLE_RCON` — `TRUE` to attempt RCON-based stop before falling back to stdin.
-- `RCON_PORT`, `RCON_PASSWORD` — used when `RCON_CONFIG_FILE` is unset.
-- `RCON_CONFIG_FILE` — if set, passed to `rcon-cli --config <file>` instead of port/password.
+- `RCON_PORT`, `RCON_PASSWORD` — used when `RCON_CONFIG_FILE` is unset. Passed to `rcon-cli` via
+  its own `RCON_PORT`/`RCON_PASSWORD` environment variables, never as command-line flags, so they
+  don't end up readable via `/proc/<pid>/cmdline` or `ps`.
+- `RCON_CONFIG_FILE` — if set, passed to `rcon-cli` via `RCON_CONFIG` instead of port/password.
 
 ## Building
 

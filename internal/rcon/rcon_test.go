@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -55,5 +56,33 @@ func TestSendStop_NotFound(t *testing.T) {
 
 	if err := SendStop(context.Background(), Config{}, "stop"); err == nil {
 		t.Fatal("expected error when rcon-cli is not on PATH, got nil")
+	}
+}
+
+// TestSendStop_CredentialsNotInArgs guards against regressing to passing
+// RCON_PASSWORD as a CLI flag, which would leak it to any other process on
+// the host via /proc/<pid>/cmdline or `ps`. The password must reach rcon-cli
+// only through its environment.
+func TestSendStop_CredentialsNotInArgs(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "invocation")
+	withFakeRconCLI(t, "printf '%s\\n' \"$@\" > "+out+"\nenv | grep ^RCON_ >> "+out+"\n")
+
+	cfg := Config{Port: "25575", Password: "s3cr3t"}
+	if err := SendStop(context.Background(), cfg, "stop"); err != nil {
+		t.Fatalf("SendStop: %v", err)
+	}
+
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if strings.Contains(string(got), cfg.Password) && !strings.Contains(string(got), "RCON_PASSWORD="+cfg.Password) {
+		t.Fatalf("password leaked outside RCON_PASSWORD env var, invocation:\n%s", got)
+	}
+	if strings.Contains(string(got), "--password") {
+		t.Fatalf("--password flag used, invocation:\n%s", got)
+	}
+	if !strings.Contains(string(got), "RCON_PORT=25575") || !strings.Contains(string(got), "RCON_PASSWORD=s3cr3t") {
+		t.Fatalf("expected RCON_PORT/RCON_PASSWORD in child env, invocation:\n%s", got)
 	}
 }
