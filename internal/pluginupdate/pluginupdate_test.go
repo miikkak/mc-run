@@ -47,8 +47,121 @@ func writeGarbage(t *testing.T, path string) {
 	}
 }
 
+// TestWriteTempFile_CleansUpOnCopyFailure guards against leaking abandoned
+// .pluginupdate-*.jar.tmp files in the plugins directory when staging fails
+// partway through (e.g. a read error copying from src).
+func TestWriteTempFile_CleansUpOnCopyFailure(t *testing.T) {
+	dir := t.TempDir()
+	// Opening a directory as "src" succeeds, but io.Copy from it fails on
+	// the first read — a convenient, portable way to fail mid-copy.
+	srcDir := filepath.Join(dir, "not-a-file")
+	if err := os.Mkdir(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := writeTempFile(dir, srcDir, 0o644); err == nil {
+		t.Fatal("expected writeTempFile to fail copying from a directory")
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() != "not-a-file" {
+			t.Fatalf("expected no leftover temp file in %s, found %s", dir, e.Name())
+		}
+	}
+}
+
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError + 1}))
+}
+
+// TestReadPluginID_OversizedDescriptorEntryRejected guards against an
+// oversized velocity-plugin.json entry (crafted or corrupt) being decoded
+// wholesale into memory: readPluginID must bail out rather than buffering
+// arbitrarily large JSON.
+func TestReadPluginID_OversizedDescriptorEntryRejected(t *testing.T) {
+	dir := t.TempDir()
+	jarPath := filepath.Join(dir, "oversized.jar")
+
+	f, err := os.Create(jarPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+
+	w := zip.NewWriter(f)
+	descriptor, err := w.Create(descriptorEntry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A well-formed but oversized JSON document: padding inside a string
+	// value so it still parses as valid JSON if fully read.
+	if _, err := descriptor.Write([]byte(`{"id":"foo","padding":"`)); err != nil {
+		t.Fatal(err)
+	}
+	padding := make([]byte, maxDescriptorSize)
+	for i := range padding {
+		padding[i] = 'x'
+	}
+	if _, err := descriptor.Write(padding); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := descriptor.Write([]byte(`"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := readPluginID(jarPath); err == nil {
+		t.Fatal("expected an error for a descriptor entry exceeding maxDescriptorSize, got nil")
+	}
+}
+
+// TestReadPluginID_ValidJSONWithTrailingPaddingRejected guards against
+// json.Decoder.Decode's streaming behavior being used to bypass the size
+// limit: Decode stops as soon as it parses one complete value and doesn't
+// require EOF afterward, so a small, valid descriptor followed by padding
+// out to (or past) maxDescriptorSize must still be rejected as oversized,
+// not silently accepted because the decoder never looked at the padding.
+func TestReadPluginID_ValidJSONWithTrailingPaddingRejected(t *testing.T) {
+	dir := t.TempDir()
+	jarPath := filepath.Join(dir, "trailing-padding.jar")
+
+	f, err := os.Create(jarPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+
+	w := zip.NewWriter(f)
+	descriptor, err := w.Create(descriptorEntry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := descriptor.Write([]byte(`{"id":"foo"}`)); err != nil {
+		t.Fatal(err)
+	}
+	// Whitespace is itself valid between/after JSON tokens, so this isn't
+	// even malformed trailing garbage — just padding a streaming decoder
+	// would happily leave unread.
+	padding := make([]byte, maxDescriptorSize)
+	for i := range padding {
+		padding[i] = ' '
+	}
+	if _, err := descriptor.Write(padding); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := readPluginID(jarPath); err == nil {
+		t.Fatal("expected an error for a descriptor entry with valid JSON plus oversized trailing padding, got nil")
+	}
 }
 
 func TestApply_NoUpdateDir(t *testing.T) {
@@ -322,6 +435,65 @@ func TestApply_IgnoresNonJarFiles(t *testing.T) {
 	}
 	if len(updates) != 0 {
 		t.Fatalf("expected no updates, got %v", updates)
+	}
+}
+
+func TestApply_DuplicatePluginIDsBothConsumeDistinctUpdates(t *testing.T) {
+	// Two jars in plugins/ declaring the same id is unusual, but must not
+	// cause the second one to blow up trying to read an update-folder
+	// source the first one's replace() already removed.
+	dir := t.TempDir()
+	updateDir := filepath.Join(dir, "update")
+	if err := os.MkdirAll(updateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeJar(t, filepath.Join(dir, "foo-a.jar"), "foo")
+	writeJar(t, filepath.Join(dir, "foo-b.jar"), "foo")
+	writeJar(t, filepath.Join(updateDir, "foo-2.0.jar"), "foo")
+
+	updates, err := Apply(dir, testLogger())
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(updates) != 1 {
+		t.Fatalf("expected exactly 1 update applied (single update jar, consumed once), got %d: %v", len(updates), updates)
+	}
+}
+
+func TestApply_RefusesToOverwriteUnrelatedJarAtUpdateFilename(t *testing.T) {
+	dir := t.TempDir()
+	updateDir := filepath.Join(dir, "update")
+	if err := os.MkdirAll(updateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// The update jar for "foo" happens to share a filename with an
+	// unrelated, already-installed "bar" plugin.
+	oldFooPath := filepath.Join(dir, "foo-1.0.jar")
+	collisionPath := filepath.Join(dir, "shared-name.jar")
+	updatePath := filepath.Join(updateDir, "shared-name.jar")
+	writeJar(t, oldFooPath, "foo")
+	writeJar(t, collisionPath, "bar")
+	writeJar(t, updatePath, "foo")
+
+	updates, err := Apply(dir, testLogger())
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if len(updates) != 0 {
+		t.Fatalf("expected the update to be refused rather than overwrite an unrelated jar, got %v", updates)
+	}
+
+	info, err := os.Stat(collisionPath)
+	if err != nil {
+		t.Fatalf("unrelated jar should still exist: %v", err)
+	}
+	if info.Size() == 0 {
+		t.Fatal("unrelated jar should be untouched")
+	}
+	if _, err := os.Stat(oldFooPath); err != nil {
+		t.Fatalf("old foo jar should be untouched since the update was refused: %v", err)
 	}
 }
 

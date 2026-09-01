@@ -49,6 +49,31 @@ func writeGarbage(t *testing.T, path string) {
 	}
 }
 
+// TestWriteTempFile_CleansUpOnCopyFailure guards against leaking abandoned
+// .plugininstall-*.jar.tmp files in the plugins directory when staging
+// fails partway through (e.g. a read error copying from src).
+func TestWriteTempFile_CleansUpOnCopyFailure(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "not-a-file")
+	if err := os.Mkdir(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := writeTempFile(dir, srcDir, 0o644); err == nil {
+		t.Fatal("expected writeTempFile to fail copying from a directory")
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() != "not-a-file" {
+			t.Fatalf("expected no leftover temp file in %s, found %s", dir, e.Name())
+		}
+	}
+}
+
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError + 1}))
 }
