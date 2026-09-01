@@ -44,7 +44,9 @@ reviews:
           ((--var)) instead.
         - Quote all variable expansions: "$var", "${arr[@]}" — except bare
           patterns inside [[ ]].
-        - Use printf instead of echo for formatted or deterministic output.
+        - Use printf instead of echo for formatted or deterministic output
+          — except the required ERR trap above, which is a fixed,
+          verbatim-mandated boilerplate line and stays as echo.
         - Iterate arrays with: for item in "${arr[@]}"; do
         - Use mapfile -t to read lines into arrays.
         - Never parse `ls` output.
