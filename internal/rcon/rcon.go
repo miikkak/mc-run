@@ -1,6 +1,6 @@
-// Package rcon shells out to the rcon-cli binary to send a stop command to a
-// running Minecraft server, mirroring itzg/mc-server-runner's
-// hasRconCli()/sendRconCommand() behavior.
+// Package rcon shells out to the rcon-cli binary (miikkak/rcon-cli, an
+// independent implementation — see its README) to send a stop command to a
+// running Minecraft server.
 package rcon
 
 import (
@@ -32,30 +32,43 @@ func Available() bool {
 
 // SendStop invokes rcon-cli to send command (typically "stop") to the
 // server. It prefers RCON_CONFIG_FILE when set, otherwise connects using
-// the port and password from Config, passed to the child via its
-// environment rather than command-line flags — rcon-cli (itzg/rcon-cli)
-// binds RCON_HOST/RCON_PORT/RCON_PASSWORD/RCON_CONFIG automatically, and
-// unlike flags, a process's argv is readable by any other process on the
-// host (e.g. via /proc/<pid>/cmdline or `ps`), which would otherwise expose
-// RCON_PASSWORD.
+// the port and password from Config.
+//
+// Port and password are passed to the child via its environment
+// (RCON_PORT/RCON_PASSWORD), never as command-line flags — a process's argv
+// is readable by any other process on the host (e.g. via
+// /proc/<pid>/cmdline or `ps`), which would otherwise expose RCON_PASSWORD.
+// rcon-cli reads RCON_HOST/RCON_PORT/RCON_PASSWORD via
+// viper.SetEnvPrefix("rcon")+AutomaticEnv(), binding to the same "host"/
+// "port"/"password" flags SendStop would otherwise have passed on argv.
+//
+// ConfigFile has no such env var equivalent: rcon-cli's --config flag sets
+// a plain Go variable directly (bypassing viper, so it's read before
+// AutomaticEnv would apply to it) rather than going through viper's
+// automatic env binding, so it's passed as a --config flag instead. That's
+// fine — a config file path isn't a secret the way a password is.
 func SendStop(ctx context.Context, cfg Config, command string) error {
 	path, err := exec.LookPath("rcon-cli")
 	if err != nil {
 		return fmt.Errorf("rcon: rcon-cli not found on PATH: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, path, command)
-	cmd.Env = os.Environ()
+	env := os.Environ()
+	var args []string
 	if cfg.ConfigFile != "" {
-		cmd.Env = append(cmd.Env, "RCON_CONFIG="+cfg.ConfigFile)
+		args = append(args, "--config", cfg.ConfigFile)
 	} else {
 		if cfg.Port != "" {
-			cmd.Env = append(cmd.Env, "RCON_PORT="+cfg.Port)
+			env = append(env, "RCON_PORT="+cfg.Port)
 		}
 		if cfg.Password != "" {
-			cmd.Env = append(cmd.Env, "RCON_PASSWORD="+cfg.Password)
+			env = append(env, "RCON_PASSWORD="+cfg.Password)
 		}
 	}
+	args = append(args, command)
+
+	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Env = env
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {

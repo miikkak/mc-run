@@ -63,14 +63,20 @@ mc-run --named-pipe /tmp/minecraft-console --stop-duration 60s -- \
 
 ## RCON environment variables
 
-Read directly from the environment (matching `entrypoint.sh`'s existing variables), not passed
-as flags:
+`mc-run` itself reads these directly from its own environment (matching `entrypoint.sh`'s
+existing variables) — they're not `mc-run` flags. It then invokes
+[`rcon-cli`](https://github.com/miikkak/rcon-cli), an independent implementation (not itzg's)
+built for this stack:
 
 - `ENABLE_RCON` — `TRUE` to attempt RCON-based stop before falling back to stdin.
 - `RCON_PORT`, `RCON_PASSWORD` — used when `RCON_CONFIG_FILE` is unset. Passed to `rcon-cli` via
-  its own `RCON_PORT`/`RCON_PASSWORD` environment variables, never as command-line flags, so they
-  don't end up readable via `/proc/<pid>/cmdline` or `ps`.
-- `RCON_CONFIG_FILE` — if set, passed to `rcon-cli` via `RCON_CONFIG` instead of port/password.
+  its own `RCON_PORT`/`RCON_PASSWORD` environment variables (which it reads via
+  `viper.AutomaticEnv()`), never as command-line flags, so they don't end up readable via
+  `/proc/<pid>/cmdline` or `ps`.
+- `RCON_CONFIG_FILE` — if set, passed to `rcon-cli` as its `--config <file>` flag instead of
+  port/password. Unlike port/password, `rcon-cli` doesn't expose an env var for this (`--config`
+  sets a plain variable directly rather than going through its viper env binding), and a file
+  path isn't a secret the way a password is, so a flag is fine here.
 
 ## Building
 

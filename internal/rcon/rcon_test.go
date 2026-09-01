@@ -86,3 +86,26 @@ func TestSendStop_CredentialsNotInArgs(t *testing.T) {
 		t.Fatalf("expected RCON_PORT/RCON_PASSWORD in child env, invocation:\n%s", got)
 	}
 }
+
+// TestSendStop_ConfigFileUsesFlag guards against passing ConfigFile via a
+// RCON_CONFIG environment variable: rcon-cli's --config flag sets a plain Go
+// variable directly rather than going through viper's automatic env
+// binding, so RCON_CONFIG is silently ignored by the real binary — the
+// config file path must be passed as a --config flag instead.
+func TestSendStop_ConfigFileUsesFlag(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "invocation")
+	withFakeRconCLI(t, "printf '%s\\n' \"$@\" > "+out+"\n")
+
+	cfg := Config{ConfigFile: "/data/.rcon-cli.yaml"}
+	if err := SendStop(context.Background(), cfg, "stop"); err != nil {
+		t.Fatalf("SendStop: %v", err)
+	}
+
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(got), "--config\n"+cfg.ConfigFile) {
+		t.Fatalf("expected --config %s in argv, invocation:\n%s", cfg.ConfigFile, got)
+	}
+}
