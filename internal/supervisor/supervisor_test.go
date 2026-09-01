@@ -178,8 +178,12 @@ done`
 func TestRun_StopDurationExceeded_KillsWholeProcessGroup(t *testing.T) {
 	grandchildPIDFile := filepath.Join(t.TempDir(), "grandchild-pid")
 
+	// $$ inside the backgrounded subshell would expand to the parent shell's
+	// own PID, not the subshell's — $! from the parent, right after
+	// backgrounding it, is what actually names the grandchild.
 	script := `trap '' TERM
-(trap '' TERM; echo $$ > "$1"; while true; do sleep 1; done) &
+(trap '' TERM; while true; do sleep 1; done) &
+echo $! > "$1"
 wait`
 
 	sup := New(Options{

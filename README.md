@@ -37,25 +37,30 @@ and file issues if something looks off.
    interactive use keeps working.
 4. On `SIGTERM` or `SIGINT` (e.g. Ctrl+C on an attached `podman run -it`/`podman attach`
    session):
+   - The `--stop-duration` (default `60s`) deadline starts immediately, running concurrently
+     with everything below it rather than after — a slow or hung RCON/announce/stdin attempt
+     can't itself push the deadline out, so `SIGKILL` can land before the announce delay or the
+     stop command would otherwise have completed.
    - If `ENABLE_RCON=TRUE` and `rcon-cli` is on `PATH`, sends the stop command via RCON.
    - Otherwise (or if the RCON attempt fails), writes the stop command directly to the child's
      stdin.
    - If `--stop-server-announce-delay` is set, sends a `say` warning and waits that long first.
-   - Waits up to `--stop-duration` (default `60s`) for the child to exit, then `SIGKILL`s the
-     child's whole process group (not just its direct PID), so a shell wrapper or launcher
-     script that forked the actual server process can't survive as an orphan.
+   - Once the `--stop-duration` deadline is reached (whether or not the steps above have
+     finished) and the child still hasn't exited, `SIGKILL`s the child's whole process group
+     (not just its direct PID), so a shell wrapper or launcher script that forked the actual
+     server process can't survive as an orphan.
 5. Exits with the child's exit code (using the `128+signal` convention for signal-terminated
    children, e.g. `137` for a `SIGKILL`/OOM-kill), and removes the named pipe on the way out.
 
 ## Flags
 
-| Flag                           | Default | Description                                                          |
-| ------------------------------ | ------- | -------------------------------------------------------------------- |
-| `--named-pipe`                 | `""`    | Path to create as a FIFO for console input. Disabled if unset.       |
-| `--stop-command`               | `stop`  | Command sent to the server on shutdown.                              |
-| `--stop-duration`              | `60s`   | Time to wait after sending the stop command before `SIGKILL`.        |
-| `--stop-server-announce-delay` | `0`     | If set, `say` a shutdown warning and wait this long before stopping. |
-| `--version`                    |         | Print version and exit.                                              |
+| Flag                           | Default | Description                                                                                 |
+| ------------------------------ | ------- | ------------------------------------------------------------------------------------------- |
+| `--named-pipe`                 | `""`    | Path to create as a FIFO for console input. Disabled if unset.                              |
+| `--stop-command`               | `stop`  | Command sent to the server on shutdown.                                                     |
+| `--stop-duration`              | `60s`   | Deadline from shutdown start (concurrent with the steps below, not after) before `SIGKILL`. |
+| `--stop-server-announce-delay` | `0`     | If set, `say` a shutdown warning and wait this long before stopping.                        |
+| `--version`                    |         | Print version and exit.                                                                     |
 
 Everything after the flags is executed as the child command, e.g.:
 
