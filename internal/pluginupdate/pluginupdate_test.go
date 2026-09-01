@@ -121,6 +121,49 @@ func TestReadPluginID_OversizedDescriptorEntryRejected(t *testing.T) {
 	}
 }
 
+// TestReadPluginID_ValidJSONWithTrailingPaddingRejected guards against
+// json.Decoder.Decode's streaming behavior being used to bypass the size
+// limit: Decode stops as soon as it parses one complete value and doesn't
+// require EOF afterward, so a small, valid descriptor followed by padding
+// out to (or past) maxDescriptorSize must still be rejected as oversized,
+// not silently accepted because the decoder never looked at the padding.
+func TestReadPluginID_ValidJSONWithTrailingPaddingRejected(t *testing.T) {
+	dir := t.TempDir()
+	jarPath := filepath.Join(dir, "trailing-padding.jar")
+
+	f, err := os.Create(jarPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+
+	w := zip.NewWriter(f)
+	descriptor, err := w.Create(descriptorEntry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := descriptor.Write([]byte(`{"id":"foo"}`)); err != nil {
+		t.Fatal(err)
+	}
+	// Whitespace is itself valid between/after JSON tokens, so this isn't
+	// even malformed trailing garbage — just padding a streaming decoder
+	// would happily leave unread.
+	padding := make([]byte, maxDescriptorSize)
+	for i := range padding {
+		padding[i] = ' '
+	}
+	if _, err := descriptor.Write(padding); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := readPluginID(jarPath); err == nil {
+		t.Fatal("expected an error for a descriptor entry with valid JSON plus oversized trailing padding, got nil")
+	}
+}
+
 func TestApply_NoUpdateDir(t *testing.T) {
 	dir := t.TempDir()
 	writeJar(t, filepath.Join(dir, "foo-1.0.jar"), "foo")

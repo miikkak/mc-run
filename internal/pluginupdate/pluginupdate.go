@@ -166,8 +166,22 @@ func readPluginID(jarPath string) (string, error) {
 		}
 		defer func() { _ = rc.Close() }()
 
+		// Read (and cap) the raw bytes rather than decoding straight off
+		// io.LimitReader: json.Decoder.Decode stops as soon as it has
+		// parsed one complete value and doesn't require EOF afterward, so
+		// a valid descriptor followed by padding up to the limit would
+		// otherwise decode successfully instead of being rejected as
+		// oversized.
+		data, err := io.ReadAll(io.LimitReader(rc, maxDescriptorSize+1))
+		if err != nil {
+			return "", fmt.Errorf("pluginupdate: read %s in %s: %w", descriptorEntry, jarPath, err)
+		}
+		if len(data) > maxDescriptorSize {
+			return "", fmt.Errorf("pluginupdate: %s in %s exceeds %d bytes", descriptorEntry, jarPath, maxDescriptorSize)
+		}
+
 		var d descriptor
-		if err := json.NewDecoder(io.LimitReader(rc, maxDescriptorSize)).Decode(&d); err != nil {
+		if err := json.Unmarshal(data, &d); err != nil {
 			return "", fmt.Errorf("pluginupdate: decode %s in %s: %w", descriptorEntry, jarPath, err)
 		}
 		if d.ID == "" {
