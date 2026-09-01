@@ -32,11 +32,26 @@ func FindPIDByComm(procRoot, name string) (int, error) {
 		return 0, fmt.Errorf("procinfo: read %s: %w", procRoot, err)
 	}
 
+	// Linux truncates /proc/<pid>/comm to TASK_COMM_LEN-1 (15) bytes, so a
+	// longer target name can never match verbatim — compare against the
+	// same truncated form the kernel would report, mirroring its behavior.
+	const commLen = 15
+	if len(name) > commLen {
+		name = name[:commLen]
+	}
+
+	self := os.Getpid()
 	var candidates []int
 	for _, entry := range entries {
 		pid, err := strconv.Atoi(entry.Name())
 		if err != nil {
 			continue // not a PID directory
+		}
+		if pid == self {
+			// Never match the process running this very lookup: e.g. `mc-run
+			// pid --name mc-run` querying its own comm would otherwise
+			// always report itself as an ambiguous (or the only) match.
+			continue
 		}
 		candidates = append(candidates, pid)
 	}
@@ -74,14 +89,14 @@ func StatusField(procRoot string, pid int, field string) (string, error) {
 	}
 	defer func() { _ = f.Close() }()
 
-	prefix := field + ":"
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if !strings.HasPrefix(line, prefix) {
+		lineField, value, ok := strings.Cut(line, ":")
+		if !ok || !strings.EqualFold(lineField, field) {
 			continue
 		}
-		fields := strings.Fields(strings.TrimPrefix(line, prefix))
+		fields := strings.Fields(value)
 		if len(fields) == 0 {
 			return "", fmt.Errorf("procinfo: %s line has no value in %s: %w", field, path, ErrNotFound)
 		}
