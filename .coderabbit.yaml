@@ -1,0 +1,79 @@
+# yaml-language-server: $schema=https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+language: en-US
+early_access: false
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_instructions:
+    - path: "**/*"
+      instructions: |
+        This is personal infrastructure and tooling running Gentoo Linux with
+        OpenRC — never systemd. Do not suggest systemctl, journalctl,
+        timedatectl, hostnamectl, localectl, systemd-run, or any systemd
+        unit/timer/target/socket. Gentoo-appropriate equivalents: emerge, eix,
+        equery, eselect, rc-service, rc-update, rc-status, openrc-run.
+        Config lives under /etc/conf.d/*, /etc/init.d/*, /etc/portage/*,
+        /etc/env.d/*.
+        Container runtime is Podman, not Docker, for anything run outside of
+        GitHub Actions itself.
+        Do not flag explicit version pins (package versions, tool versions,
+        base image tags) as invalid, non-existent, or outdated — you cannot
+        verify release status at runtime and your training data may be stale;
+        treat all explicit version pins as intentional.
+    - path: "**/*.sh"
+      instructions: |
+        Bash 5+ only. Required in every executable script:
+          #!/usr/bin/env bash
+          set -Eeuo pipefail
+          trap 'echo "Error on line $LINENO"' ERR
+        Style rules to flag when violated (the linters below don't catch all
+        of these):
+        - Use [[ ]] for conditionals, never [ ] (POSIX test).
+        - Use $(command) for substitution, never backticks.
+        - Use (( )) for arithmetic expressions.
+        - CRITICAL: with set -e, ((var++)) and ((var--)) are forbidden —
+          post-increment/decrement returns the OLD value (0 when var=0),
+          which set -e treats as a failing exit status. Use ((++var)) or
+          ((--var)) instead.
+        - Quote all variable expansions: "$var", "${arr[@]}" — except bare
+          patterns inside [[ ]].
+        - Use printf instead of echo for formatted or deterministic output
+          — except the required ERR trap above, which is a fixed,
+          verbatim-mandated boilerplate line and stays as echo.
+        - Iterate arrays with: for item in "${arr[@]}"; do
+        - Use mapfile -t to read lines into arrays.
+        - Never parse `ls` output.
+        - Avoid unquoted globs or word-splitting.
+        - Avoid backticks, legacy POSIX shell patterns, and parsing `ls`
+          unless a real constraint requires it.
+        - Libraries (sourced, not executed directly) should have no shebang
+          and should not be executable. Executables need both a shebang and
+          the executable bit.
+        Formatting/lint tooling (shfmt, shellcheck) already covers style and
+        syntax — only flag real logic, safety, or correctness issues here,
+        not things a formatter would already fix.
+    - path: "**/*.{yml,yaml}"
+      instructions: |
+        GitHub Actions workflows in this environment prefer self-hosted
+        runners, with GitHub-hosted `ubuntu-slim` as the default fallback for
+        anything that must run on a GitHub-hosted runner; only use
+        `ubuntu-latest` when a job genuinely needs VM-specific capabilities
+        (e.g. Docker Buildx) that `ubuntu-slim` cannot provide. Do not suggest
+        switching a job to `ubuntu-latest` unless the job actually needs those
+        capabilities.
+  auto_title_instructions: ""
+  finishing_touches:
+    docstrings:
+      enabled: false
+  pre_merge_checks:
+    docstrings:
+      mode: "off"
+chat:
+  auto_reply: true
