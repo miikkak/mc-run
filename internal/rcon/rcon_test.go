@@ -64,26 +64,37 @@ func TestSendStop_NotFound(t *testing.T) {
 // the host via /proc/<pid>/cmdline or `ps`. The password must reach rcon-cli
 // only through its environment.
 func TestSendStop_CredentialsNotInArgs(t *testing.T) {
-	out := filepath.Join(t.TempDir(), "invocation")
-	withFakeRconCLI(t, "printf '%s\\n' \"$@\" > "+out+"\nenv | grep ^RCON_ >> "+out+"\n")
+	dir := t.TempDir()
+	argvFile := filepath.Join(dir, "argv")
+	envFile := filepath.Join(dir, "env")
+	// argv and env are captured to separate files so the argv assertion
+	// below can't accidentally pass just because the password also shows
+	// up (correctly) in the env dump — the two must be checked
+	// independently, not as one combined blob.
+	withFakeRconCLI(t, "printf '%s\\n' \"$@\" > "+argvFile+"\nenv | grep ^RCON_ > "+envFile+"\n")
 
 	cfg := Config{Port: "25575", Password: "s3cr3t"}
 	if err := SendStop(context.Background(), cfg, "stop"); err != nil {
 		t.Fatalf("SendStop: %v", err)
 	}
 
-	got, err := os.ReadFile(out)
+	argv, err := os.ReadFile(argvFile)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
-	if strings.Contains(string(got), cfg.Password) && !strings.Contains(string(got), "RCON_PASSWORD="+cfg.Password) {
-		t.Fatalf("password leaked outside RCON_PASSWORD env var, invocation:\n%s", got)
+	if strings.Contains(string(argv), cfg.Password) {
+		t.Fatalf("password leaked into argv:\n%s", argv)
 	}
-	if strings.Contains(string(got), "--password") {
-		t.Fatalf("--password flag used, invocation:\n%s", got)
+	if strings.Contains(string(argv), "--password") {
+		t.Fatalf("--password flag used, argv:\n%s", argv)
 	}
-	if !strings.Contains(string(got), "RCON_PORT=25575") || !strings.Contains(string(got), "RCON_PASSWORD=s3cr3t") {
-		t.Fatalf("expected RCON_PORT/RCON_PASSWORD in child env, invocation:\n%s", got)
+
+	env, err := os.ReadFile(envFile)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(env), "RCON_PORT=25575") || !strings.Contains(string(env), "RCON_PASSWORD=s3cr3t") {
+		t.Fatalf("expected RCON_PORT/RCON_PASSWORD in child env, got:\n%s", env)
 	}
 }
 

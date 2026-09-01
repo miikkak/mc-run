@@ -15,6 +15,8 @@ import (
 // in principle, echo back more of the invoking environment than intended).
 const maxErrorOutput = 4096
 
+const truncatedOutputSuffix = "... (truncated)"
+
 // Config holds the connection details needed to reach the server's RCON
 // listener, sourced from the container's ENABLE_RCON/RCON_PORT/
 // RCON_PASSWORD/RCON_CONFIG_FILE environment variables.
@@ -73,7 +75,7 @@ func SendStop(ctx context.Context, cfg Config, command string) error {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if len(out) > maxErrorOutput {
-			out = append(out[:maxErrorOutput], []byte("... (truncated)")...)
+			out = append(out[:maxErrorOutput-len(truncatedOutputSuffix)], truncatedOutputSuffix...)
 		}
 		return fmt.Errorf("rcon: rcon-cli %s: %w (output: %s)", command, err, out)
 	}
