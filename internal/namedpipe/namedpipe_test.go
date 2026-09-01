@@ -61,6 +61,23 @@ func TestEnsureRejectsNonFIFO(t *testing.T) {
 	}
 }
 
+// TestEnsureRejectsBrokenSymlink guards against a dangling symlink at path
+// (mkfifo never creates a symlink, so anything there is something else's)
+// being misread as "absent" by a Stat that follows it — which would then
+// make the subsequent Mkfifo fail with EEXIST on the symlink itself instead
+// of Ensure reporting a clean "exists and is not a FIFO" error.
+func TestEnsureRejectsBrokenSymlink(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "console")
+	if err := os.Symlink(filepath.Join(dir, "does-not-exist"), path); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	if err := Ensure(path); err == nil {
+		t.Fatal("expected Ensure to reject a broken symlink, got nil error")
+	}
+}
+
 func TestPumpRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "console")
 	if err := Ensure(path); err != nil {

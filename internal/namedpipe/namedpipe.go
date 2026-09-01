@@ -11,9 +11,14 @@ import (
 )
 
 // Ensure creates path as a FIFO if it does not already exist. If path exists
-// and is not a FIFO, it returns an error rather than clobbering it.
+// and is not a FIFO, it returns an error rather than clobbering it. Lstat
+// (not Stat) is used deliberately: mkfifo never creates a symlink, so
+// anything already at path that is a symlink — dangling or not — is
+// something else's, and Stat following it to a dangling target would
+// otherwise misreport it as absent, leading Mkfifo to fail with EEXIST on
+// the symlink itself.
 func Ensure(path string) error {
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if err == nil {
 		if info.Mode()&os.ModeNamedPipe == 0 {
 			return fmt.Errorf("namedpipe: %s exists and is not a FIFO", path)
