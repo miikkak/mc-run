@@ -21,6 +21,13 @@ import (
 
 const descriptorEntry = "velocity-plugin.json"
 
+// maxDescriptorSize bounds how much of a velocity-plugin.json entry is read
+// before decoding it as JSON, so a maliciously or accidentally oversized
+// descriptor entry (a zip can claim a large uncompressed size while
+// compressing to very little on disk) can't be used to exhaust memory
+// before the JVM even starts. The real file is a few hundred bytes.
+const maxDescriptorSize = 1 << 20 // 1 MiB
+
 var errNoDescriptor = errors.New("pluginupdate: no velocity-plugin.json entry")
 
 // descriptor is the subset of velocity-plugin.json mc-run needs.
@@ -97,6 +104,10 @@ func Apply(pluginsDir string, logger *slog.Logger) ([]Update, error) {
 		if !ok {
 			continue
 		}
+		// Consume the match so a second plugins/ jar that (unusually)
+		// declares the same id doesn't try to replace() from a
+		// updatePath already removed by this iteration's replace().
+		delete(byID, id)
 
 		newPath, err, cleanupErr := replace(pluginPath, updatePath)
 		if err != nil {
@@ -156,7 +167,7 @@ func readPluginID(jarPath string) (string, error) {
 		defer func() { _ = rc.Close() }()
 
 		var d descriptor
-		if err := json.NewDecoder(rc).Decode(&d); err != nil {
+		if err := json.NewDecoder(io.LimitReader(rc, maxDescriptorSize)).Decode(&d); err != nil {
 			return "", fmt.Errorf("pluginupdate: decode %s in %s: %w", descriptorEntry, jarPath, err)
 		}
 		if d.ID == "" {
@@ -199,6 +210,17 @@ func replace(pluginPath, updatePath string) (newPath string, err error, cleanupE
 	defer func() { _ = os.Remove(tmpPath) }() // no-op once successfully renamed away
 
 	newPath = filepath.Join(dir, filepath.Base(updatePath))
+	if newPath != pluginPath {
+		// The update jar's filename doesn't match the plugin it's
+		// updating (Paper renames to the update jar's name). Refuse to
+		// silently clobber some unrelated jar that happens to already
+		// sit at that name rather than blindly overwriting it.
+		if _, statErr := os.Lstat(newPath); statErr == nil {
+			return "", fmt.Errorf("rename staged update to %s: a different file already exists at that path", newPath), nil
+		} else if !os.IsNotExist(statErr) {
+			return "", fmt.Errorf("stat %s: %w", newPath, statErr), nil
+		}
+	}
 	if err := os.Rename(tmpPath, newPath); err != nil {
 		return "", fmt.Errorf("rename staged update to %s: %w", newPath, err), nil
 	}
@@ -221,8 +243,9 @@ func replace(pluginPath, updatePath string) (newPath string, err error, cleanupE
 
 // writeTempFile copies src into a new temp file in dir with the given
 // permission bits, fsyncs and closes it, and returns its path. The caller
-// is responsible for renaming (or removing) it.
-func writeTempFile(dir, src string, perm os.FileMode) (string, error) {
+// is responsible for renaming (or removing) it on success; on error,
+// writeTempFile has already cleaned up any partial temp file itself.
+func writeTempFile(dir, src string, perm os.FileMode) (path string, err error) {
 	in, err := os.Open(src)
 	if err != nil {
 		return "", err
@@ -234,17 +257,20 @@ func writeTempFile(dir, src string, perm os.FileMode) (string, error) {
 		return "", err
 	}
 	tmpPath := tmp.Name()
+	defer func() {
+		if err != nil {
+			_ = tmp.Close()
+			_ = os.Remove(tmpPath)
+		}
+	}()
 
 	if err := tmp.Chmod(perm); err != nil {
-		_ = tmp.Close()
 		return "", err
 	}
 	if _, err := io.Copy(tmp, in); err != nil {
-		_ = tmp.Close()
 		return "", err
 	}
 	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
 		return "", err
 	}
 	if err := tmp.Close(); err != nil {
