@@ -53,15 +53,18 @@ func TestFindPIDByComm(t *testing.T) {
 func TestFindPIDByCommExcludesSelf(t *testing.T) {
 	root := t.TempDir()
 	self := os.Getpid()
+	// Derived from self (not hard-coded) so it can never collide with the
+	// running test process's own PID, however small that's possible.
+	target := self + 1
 	writeProc(t, root, self, "mc-run", "")
-	writeProc(t, root, 42, "mc-run", "")
+	writeProc(t, root, target, "mc-run", "")
 
 	pid, err := FindPIDByComm(root, "mc-run")
 	if err != nil {
 		t.Fatalf("FindPIDByComm: %v", err)
 	}
-	if pid != 42 {
-		t.Errorf("got pid %d, want 42 (self pid %d should have been excluded)", pid, self)
+	if pid != target {
+		t.Errorf("got pid %d, want %d (self pid %d should have been excluded)", pid, target, self)
 	}
 }
 
@@ -73,14 +76,17 @@ func TestFindPIDByCommTruncatesLongNames(t *testing.T) {
 	root := t.TempDir()
 	longName := "a-very-long-process-name-that-exceeds-the-kernel-limit"
 	truncated := longName[:15]
-	writeProc(t, root, 42, truncated, "")
+	// Derived from self (not hard-coded) so it can never collide with the
+	// running test process's own PID, which FindPIDByComm now excludes.
+	target := os.Getpid() + 1
+	writeProc(t, root, target, truncated, "")
 
 	pid, err := FindPIDByComm(root, longName)
 	if err != nil {
 		t.Fatalf("FindPIDByComm: %v", err)
 	}
-	if pid != 42 {
-		t.Errorf("got pid %d, want 42", pid)
+	if pid != target {
+		t.Errorf("got pid %d, want %d", pid, target)
 	}
 }
 
