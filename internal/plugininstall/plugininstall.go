@@ -224,8 +224,9 @@ func install(srcPath, dest string) (newPath string, err error, cleanupErr error)
 
 // writeTempFile copies src into a new temp file in dir with the given
 // permission bits, fsyncs and closes it, and returns its path. The caller
-// is responsible for renaming (or removing) it.
-func writeTempFile(dir, src string, perm os.FileMode) (string, error) {
+// is responsible for renaming (or removing) it on success; on error,
+// writeTempFile has already cleaned up any partial temp file itself.
+func writeTempFile(dir, src string, perm os.FileMode) (path string, err error) {
 	in, err := os.Open(src)
 	if err != nil {
 		return "", err
@@ -237,17 +238,20 @@ func writeTempFile(dir, src string, perm os.FileMode) (string, error) {
 		return "", err
 	}
 	tmpPath := tmp.Name()
+	defer func() {
+		if err != nil {
+			_ = tmp.Close()
+			_ = os.Remove(tmpPath)
+		}
+	}()
 
 	if err := tmp.Chmod(perm); err != nil {
-		_ = tmp.Close()
 		return "", err
 	}
 	if _, err := io.Copy(tmp, in); err != nil {
-		_ = tmp.Close()
 		return "", err
 	}
 	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
 		return "", err
 	}
 	if err := tmp.Close(); err != nil {
