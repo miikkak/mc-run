@@ -71,7 +71,7 @@ func TestSendStop_CredentialsNotInArgs(t *testing.T) {
 	// below can't accidentally pass just because the password also shows
 	// up (correctly) in the env dump — the two must be checked
 	// independently, not as one combined blob.
-	withFakeRconCLI(t, "printf '%s\\n' \"$@\" > "+argvFile+"\nenv | grep ^RCON_ > "+envFile+"\n")
+	withFakeRconCLI(t, "printf '%s\\n' \"$@\" > '"+argvFile+"'\nenv | grep ^RCON_ > '"+envFile+"'\n")
 
 	cfg := Config{Port: "25575", Password: "s3cr3t"}
 	if err := SendStop(context.Background(), cfg, "stop"); err != nil {
@@ -105,7 +105,7 @@ func TestSendStop_CredentialsNotInArgs(t *testing.T) {
 // config file path must be passed as a --config flag instead.
 func TestSendStop_ConfigFileUsesFlag(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "invocation")
-	withFakeRconCLI(t, "printf '%s\\n' \"$@\" > "+out+"\n")
+	withFakeRconCLI(t, "printf '%s\\n' \"$@\" > '"+out+"'\n")
 
 	cfg := Config{ConfigFile: "/data/.rcon-cli.yaml"}
 	if err := SendStop(context.Background(), cfg, "stop"); err != nil {
