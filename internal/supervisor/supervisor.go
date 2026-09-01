@@ -107,6 +107,11 @@ func (s *Supervisor) Run(ctx context.Context, argv []string) (int, error) {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	// Run the child as its own process group leader so a stop-duration
+	// timeout can kill the whole tree (see killChild below), not just the
+	// direct child — a shell wrapper or launcher script that forked the
+	// actual JVM would otherwise survive as an orphan.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -137,7 +142,12 @@ func (s *Supervisor) Run(ctx context.Context, argv []string) (int, error) {
 	}()
 
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGTERM)
+	// SIGTERM is what container runtimes send on shutdown; SIGINT is what
+	// an attached terminal sends on Ctrl+C during interactive use (e.g.
+	// `podman run -it` / `podman attach`) — both should trigger the same
+	// graceful stop rather than SIGINT falling through to Go's default
+	// immediate-termination handling.
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	defer signal.Stop(sigCh)
 
 	// mc-run runs as PID 1 in the container. Go's default SIGQUIT handling
@@ -167,8 +177,8 @@ func (s *Supervisor) Run(ctx context.Context, argv []string) (int, error) {
 	select {
 	case err := <-waitCh:
 		return exitCodeFrom(err), nil
-	case <-sigCh:
-		s.opts.Logger.Info("received SIGTERM, stopping server", "stop_duration", s.opts.StopDuration)
+	case sig := <-sigCh:
+		s.opts.Logger.Info("received signal, stopping server", "signal", sig, "stop_duration", s.opts.StopDuration)
 		return s.gracefulStop(ctx, cmd, waitCh)
 	case <-ctx.Done():
 		// ctx is already done, so a fresh context is used for the stop
@@ -180,9 +190,22 @@ func (s *Supervisor) Run(ctx context.Context, argv []string) (int, error) {
 }
 
 // gracefulStop sends the stop command via stop, then waits up to
-// StopDuration for the child to exit before killing it.
+// StopDuration for the child to exit before killing it. The StopDuration
+// timer starts immediately, in parallel with stop() rather than after it
+// returns: stop() can block for a while (an unresponsive RCON connection, or
+// writing to a child that has stopped reading its stdin), and that must
+// never itself delay the kill deadline meant to bound exactly that kind of
+// hang.
 func (s *Supervisor) gracefulStop(ctx context.Context, cmd *exec.Cmd, waitCh <-chan error) (int, error) {
-	s.stop(ctx)
+	// stop()'s own context, cancelled when gracefulStop returns by either
+	// branch below, so the goroutine can't outlive this call: stop() already
+	// selects on ctx.Done() during its announce-delay wait and passes ctx
+	// through to the RCON attempt's timeout, so cancelling it here unblocks
+	// whichever of those it's currently in rather than leaving it running in
+	// the background after the child (and the point of stopping it) is gone.
+	stopCtx, cancelStop := context.WithCancel(ctx)
+	defer cancelStop()
+	go s.stop(stopCtx)
 
 	timer := time.NewTimer(s.opts.StopDuration)
 	defer timer.Stop()
@@ -192,8 +215,21 @@ func (s *Supervisor) gracefulStop(ctx context.Context, cmd *exec.Cmd, waitCh <-c
 		return exitCodeFrom(err), nil
 	case <-timer.C:
 		s.opts.Logger.Warn("stop duration exceeded, killing child process")
-		_ = cmd.Process.Kill()
+		killChild(cmd, s.opts.Logger)
 		return exitCodeFrom(<-waitCh), nil
+	}
+}
+
+// killChild SIGKILLs the child's whole process group (see Setpgid in Run),
+// not just the direct child PID — a shell wrapper or launcher script that
+// forked the actual server process would otherwise be left running as an
+// orphan. Falls back to killing just the direct child if the process-group
+// kill fails (e.g. the process already exited).
+func killChild(cmd *exec.Cmd, logger *slog.Logger) {
+	pgid := cmd.Process.Pid
+	if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil {
+		logger.Warn("failed to kill child process group, falling back to killing child pid only", "pgid", pgid, "error", err)
+		_ = cmd.Process.Kill()
 	}
 }
 
