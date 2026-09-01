@@ -5,7 +5,7 @@ A minimal, stdlib-only Go process supervisor for Minecraft server containers.
 `mc-run` replaces [`itzg/mc-server-runner`](https://github.com/itzg/mc-server-runner) in
 [`mc-server-container`](https://github.com/miikkak/mc-server-container). It is **not a fork** —
 it's a from-scratch implementation covering exactly what that container uses: process
-supervision, named-pipe console input, and graceful shutdown on `SIGTERM`.
+supervision, named-pipe console input, and graceful shutdown on `SIGTERM`/`SIGINT`.
 
 ## Why not just use mc-server-runner?
 
@@ -35,12 +35,15 @@ and file issues if something looks off.
    FIFO's existence as a liveness signal.
 3. Also relays `mc-run`'s own stdin to the child's stdin concurrently, so `podman attach` /
    interactive use keeps working.
-4. On `SIGTERM`:
+4. On `SIGTERM` or `SIGINT` (e.g. Ctrl+C on an attached `podman run -it`/`podman attach`
+   session):
    - If `ENABLE_RCON=TRUE` and `rcon-cli` is on `PATH`, sends the stop command via RCON.
    - Otherwise (or if the RCON attempt fails), writes the stop command directly to the child's
      stdin.
    - If `--stop-server-announce-delay` is set, sends a `say` warning and waits that long first.
-   - Waits up to `--stop-duration` (default `60s`) for the child to exit, then sends `SIGKILL`.
+   - Waits up to `--stop-duration` (default `60s`) for the child to exit, then `SIGKILL`s the
+     child's whole process group (not just its direct PID), so a shell wrapper or launcher
+     script that forked the actual server process can't survive as an orphan.
 5. Exits with the child's exit code (using the `128+signal` convention for signal-terminated
    children, e.g. `137` for a `SIGKILL`/OOM-kill), and removes the named pipe on the way out.
 
