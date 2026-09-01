@@ -15,6 +15,16 @@ dependencies (`gliderlabs/ssh`, `coder/websocket`, `zap`, `uuid`, `go-flagsfille
 exist to support those unused features. `mc-run` drops all of that: Go stdlib only, no `go.mod`
 `require` lines.
 
+## About this project
+
+This was built with heavy Claude Code assistance — most of the implementation
+is AI-generated, with the design and review driven by me. It has unit test
+coverage across every internal package (see `internal/*/*_test.go`) and runs
+as PID 1 in my own production Minecraft server stack
+([mc-server-container](https://github.com/miikkak/mc-server-container)), so
+it sees real day-to-day use, not just its own test suite. Read the source
+and file issues if something looks off.
+
 ## What it does
 
 1. Spawns the given command (e.g. `java <opts> -jar server.jar --nogui`) as a child process,
