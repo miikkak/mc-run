@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -55,5 +56,67 @@ func TestSendStop_NotFound(t *testing.T) {
 
 	if err := SendStop(context.Background(), Config{}, "stop"); err == nil {
 		t.Fatal("expected error when rcon-cli is not on PATH, got nil")
+	}
+}
+
+// TestSendStop_CredentialsNotInArgs guards against regressing to passing
+// RCON_PASSWORD as a CLI flag, which would leak it to any other process on
+// the host via /proc/<pid>/cmdline or `ps`. The password must reach rcon-cli
+// only through its environment.
+func TestSendStop_CredentialsNotInArgs(t *testing.T) {
+	dir := t.TempDir()
+	argvFile := filepath.Join(dir, "argv")
+	envFile := filepath.Join(dir, "env")
+	// argv and env are captured to separate files so the argv assertion
+	// below can't accidentally pass just because the password also shows
+	// up (correctly) in the env dump — the two must be checked
+	// independently, not as one combined blob.
+	withFakeRconCLI(t, "printf '%s\\n' \"$@\" > '"+argvFile+"'\nenv | grep ^RCON_ > '"+envFile+"'\n")
+
+	cfg := Config{Port: "25575", Password: "s3cr3t"}
+	if err := SendStop(context.Background(), cfg, "stop"); err != nil {
+		t.Fatalf("SendStop: %v", err)
+	}
+
+	argv, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if strings.Contains(string(argv), cfg.Password) {
+		t.Fatalf("password leaked into argv:\n%s", argv)
+	}
+	if strings.Contains(string(argv), "--password") {
+		t.Fatalf("--password flag used, argv:\n%s", argv)
+	}
+
+	env, err := os.ReadFile(envFile)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(env), "RCON_PORT=25575") || !strings.Contains(string(env), "RCON_PASSWORD=s3cr3t") {
+		t.Fatalf("expected RCON_PORT/RCON_PASSWORD in child env, got:\n%s", env)
+	}
+}
+
+// TestSendStop_ConfigFileUsesFlag guards against passing ConfigFile via a
+// RCON_CONFIG environment variable: rcon-cli's --config flag sets a plain Go
+// variable directly rather than going through viper's automatic env
+// binding, so RCON_CONFIG is silently ignored by the real binary — the
+// config file path must be passed as a --config flag instead.
+func TestSendStop_ConfigFileUsesFlag(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "invocation")
+	withFakeRconCLI(t, "printf '%s\\n' \"$@\" > '"+out+"'\n")
+
+	cfg := Config{ConfigFile: "/data/.rcon-cli.yaml"}
+	if err := SendStop(context.Background(), cfg, "stop"); err != nil {
+		t.Fatalf("SendStop: %v", err)
+	}
+
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(got), "--config\n"+cfg.ConfigFile) {
+		t.Fatalf("expected --config %s in argv, invocation:\n%s", cfg.ConfigFile, got)
 	}
 }
