@@ -197,7 +197,15 @@ func (s *Supervisor) Run(ctx context.Context, argv []string) (int, error) {
 // never itself delay the kill deadline meant to bound exactly that kind of
 // hang.
 func (s *Supervisor) gracefulStop(ctx context.Context, cmd *exec.Cmd, waitCh <-chan error) (int, error) {
-	go s.stop(ctx)
+	// stop()'s own context, cancelled when gracefulStop returns by either
+	// branch below, so the goroutine can't outlive this call: stop() already
+	// selects on ctx.Done() during its announce-delay wait and passes ctx
+	// through to the RCON attempt's timeout, so cancelling it here unblocks
+	// whichever of those it's currently in rather than leaving it running in
+	// the background after the child (and the point of stopping it) is gone.
+	stopCtx, cancelStop := context.WithCancel(ctx)
+	defer cancelStop()
+	go s.stop(stopCtx)
 
 	timer := time.NewTimer(s.opts.StopDuration)
 	defer timer.Stop()

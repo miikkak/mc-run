@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -269,6 +270,56 @@ func TestRun_StopDurationNotBlockedByStop(t *testing.T) {
 
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("Run took %v, want well under the 5s announce delay (StopDuration should have killed the child first)", elapsed)
+	}
+}
+
+// TestGracefulStop_StopGoroutineCancelledOnTimeout guards against a
+// goroutine leak: stop() runs in its own goroutine (see
+// TestRun_StopDurationNotBlockedByStop) so a slow stop() can't block the
+// kill timer, but that goroutine must not be left running after
+// gracefulStop returns. Here StopDuration (200ms) is far shorter than
+// StopServerAnnounceDelay (5s), so the kill timer fires and gracefulStop
+// returns while stop() is still in the middle of its announce-delay wait;
+// gracefulStop must cancel stop()'s context so that wait unblocks promptly
+// instead of the goroutine lingering for the rest of the 5s delay.
+func TestGracefulStop_StopGoroutineCancelledOnTimeout(t *testing.T) {
+	sup := New(Options{
+		StopCommand:             "stop",
+		StopDuration:            200 * time.Millisecond,
+		StopServerAnnounceDelay: 5 * time.Second,
+	})
+
+	baseline := runtime.NumGoroutine()
+
+	done := make(chan struct{})
+	go func() {
+		_, _ = sup.Run(context.Background(), []string{"sh", "-c", "trap '' TERM; while true; do sleep 1; done"})
+		close(done)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatalf("kill: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return promptly")
+	}
+
+	// The stop() goroutine's announce-delay wait (5s) must be cancelled
+	// promptly when gracefulStop returns, not left running — poll for the
+	// goroutine count to settle back down well before that 5s would
+	// otherwise elapse.
+	deadline := time.Now().Add(1 * time.Second)
+	for {
+		if n := runtime.NumGoroutine(); n <= baseline {
+			return
+		} else if time.Now().After(deadline) {
+			t.Fatalf("goroutine count still %d (baseline %d) 1s after Run returned — stop()'s goroutine appears to have leaked", n, baseline)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 
