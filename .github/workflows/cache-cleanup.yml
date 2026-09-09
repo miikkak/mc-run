@@ -12,5 +12,5 @@ permissions:
 
 jobs:
   cleanup-caches:
-    uses: miikkak/workflows/.github/workflows/cache-cleanup.yml@e382aaef146de6b953783f45e2756ef56b391a82 # main
+    uses: miikkak/workflows/.github/workflows/cache-cleanup.yml@878ac92905995ab976d4814af0e919306f0d3ccc # main
     secrets: inherit
