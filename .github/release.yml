@@ -1,0 +1,6 @@
+---
+changelog:
+  exclude:
+    labels:
+      - github-actions
+      - release:none
