@@ -15,5 +15,5 @@ permissions:
   actions: write
 jobs:
   check-updates:
-    uses: miikkak/workflows/.github/workflows/precommit-updates.yml@e1f058b6743c6d2302359c4b8f335a0da0e3799d # main
+    uses: miikkak/workflows/.github/workflows/precommit-updates.yml@bac20ff6553fafb7ea9a6fcb438ce52bfb6c61ee # main
     secrets: inherit
