@@ -20,7 +20,7 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
-    uses: miikkak/workflows/.github/workflows/cd.yml@9b5aed5e5fa9907b0f45b1e813c8efbef62e79e0 # main
+    uses: miikkak/workflows/.github/workflows/cd.yml@9ae38dd03128439fb9c9a06077e06c11453f7533 # main
     secrets:
       SEMANTIC_RELEASE_TOKEN: ${{ secrets.SEMANTIC_RELEASE_TOKEN }}
     with:
