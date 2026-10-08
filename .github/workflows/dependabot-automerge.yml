@@ -14,6 +14,6 @@ jobs:
   automerge:
     if: github.actor == 'dependabot[bot]'
     name: Dependabot Automerge
-    uses: miikkak/workflows/.github/workflows/dependabot-automerge.yml@4ab6bedcfa5b0de447ca473f75e9d500bbd0e99a # main
+    uses: miikkak/workflows/.github/workflows/dependabot-automerge.yml@7c2dedbd45e3029c914c77ff0c64b3fc97319a6c # main
     secrets:
       PULL_REQUEST_TOKEN: ${{ secrets.PULL_REQUEST_TOKEN }}
