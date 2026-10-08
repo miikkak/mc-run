@@ -23,79 +23,9 @@ permissions:
   contents: write
 
 jobs:
-  validate-tag-input:
-    uses: miikkak/workflows/.github/workflows/validate-tag.yml@7c2dedbd45e3029c914c77ff0c64b3fc97319a6c # main
+  release:
+    uses: miikkak/workflows/.github/workflows/release-go.yml@7c2dedbd45e3029c914c77ff0c64b3fc97319a6c # main
     with:
+      binary: mc-run
+      extra-files: "README.md LICENSE"
       tag: ${{ inputs.tag || '' }}
-
-  build-release:
-    name: Build and Release
-    runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 15
-    needs: validate-tag-input
-    if: |
-      always() &&
-      (needs.validate-tag-input.result == 'success' || needs.validate-tag-input.result == 'skipped')
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
-
-      - name: Set up Go
-        if: runner.environment == 'github-hosted'
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Determine version
-        id: version
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_TAG: ${{ inputs.tag }}
-        run: |
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Run tests
-        run: go test ./... -race
-
-      - name: Build binaries (linux/amd64, linux/arm64)
-        env:
-          RELEASE_TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          for arch in amd64 arm64; do
-            CGO_ENABLED=0 GOOS=linux GOARCH="${arch}" \
-              go build \
-                -ldflags="-s -w -X main.version=${RELEASE_TAG}" \
-                -o "mc-run-linux-${arch}" \
-                ./cmd/mc-run/
-          done
-
-      - name: Create release archives
-        env:
-          RELEASE_TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          for arch in amd64 arm64; do
-            cp "mc-run-linux-${arch}" mc-run
-            tar czf "mc-run_${RELEASE_TAG}_linux_${arch}.tar.gz" \
-              mc-run \
-              README.md
-            rm mc-run
-          done
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: ${{ steps.version.outputs.tag }}
-          files: |
-            mc-run_${{ steps.version.outputs.tag }}_linux_amd64.tar.gz
-            mc-run_${{ steps.version.outputs.tag }}_linux_arm64.tar.gz
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
