@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   ci-cd:
-    uses: miikkak/workflows/.github/workflows/ci-cd.yml@4ab6bedcfa5b0de447ca473f75e9d500bbd0e99a # main
+    uses: miikkak/workflows/.github/workflows/ci-cd.yml@7c2dedbd45e3029c914c77ff0c64b3fc97319a6c # main
     with:
       runner: '["self-hosted","linux","x64"]'
       test-runner: '["self-hosted","linux","x64"]'
