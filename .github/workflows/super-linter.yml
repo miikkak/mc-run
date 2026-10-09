@@ -13,5 +13,5 @@ permissions:
 
 jobs:
   super-lint:
-    uses: miikkak/workflows/.github/workflows/super-linter.yml@7c2dedbd45e3029c914c77ff0c64b3fc97319a6c # main
+    uses: miikkak/workflows/.github/workflows/super-linter.yml@550373595d009487da0c9dcc029b0ebd5507969f # main
     secrets: inherit
