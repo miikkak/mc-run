@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   release:
-    uses: miikkak/workflows/.github/workflows/release-go.yml@47bfc5bbadda411494a626318055f694668c144e # main
+    uses: miikkak/workflows/.github/workflows/release-go.yml@a6ab6414970345cfeb201f6b851443f182464211 # main
     with:
       binary: mc-run
       extra-files: "README.md LICENSE"
