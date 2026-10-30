@@ -1,3 +1,5 @@
+default_install_hook_types: [pre-commit, pre-push]
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -38,12 +40,17 @@ repos:
         stages: [pre-commit]
       # Covers the first ref of a multi-ref push only (pre-commit exposes a
       # single from/to pair); the CI push scan covers every ref.
+      # A root-commit push (new branch with no common history) sets neither
+      # PRE_COMMIT_FROM_REF nor PRE_COMMIT_TO_REF; without the fallback to the
+      # pushed local ref the range is empty and nothing is scanned, yet the hook
+      # reports Passed.
       - id: gitleaks
         alias: gitleaks-push
         name: Detect hardcoded secrets (pushed commits)
         entry: >-
           bash -c 'gitleaks git --redact --no-banner --verbose
-          --log-opts="--diff-merges=first-parent ${PRE_COMMIT_FROM_REF:+${PRE_COMMIT_FROM_REF}..}${PRE_COMMIT_TO_REF}"'
+          --log-opts="--diff-merges=first-parent
+          ${PRE_COMMIT_FROM_REF:+${PRE_COMMIT_FROM_REF}..}${PRE_COMMIT_TO_REF:-${PRE_COMMIT_LOCAL_BRANCH:-HEAD}}"'
         stages: [pre-push]
         # Scan even when the pushed range's net diff touches no files: a
         # secret added then deleted within the range is still in history.
